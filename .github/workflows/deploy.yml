@@ -1,0 +1,208 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  STACK_NAME: urbangroup-stack
+  STAGE: prod
+
+jobs:
+  deploy:
+    name: Deploy Backend + Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup SAM CLI
+        uses: aws-actions/setup-sam@v2
+
+      # ── Build Python Lambda package ──────────────────────
+      - name: Prepare Python Lambda
+        run: |
+          mkdir -p lambda-backend/agents/specific-mission-agents/priority-specific-agents/100-customer
+          mkdir -p lambda-backend/agents/specific-mission-agents/priority-specific-agents/200-invoices
+          mkdir -p lambda-backend/agents/specific-mission-agents/priority-specific-agents/210-invoice-closer
+          mkdir -p lambda-backend/agents/specific-mission-agents/priority-specific-agents/300-service-call
+          mkdir -p lambda-backend/agents/specific-mission-agents/priority-specific-agents/420-invoice-printer
+          mkdir -p lambda-backend/agents/specific-mission-agents/priority-specific-agents/600-equipment
+          mkdir -p lambda-backend/agents/specific-mission-agents/priority-specific-agents/800-reports
+          mkdir -p lambda-backend/agents/flows/ariel
+          mkdir -p lambda-backend/agents/smart-agents-and-bots/maintenance/M1000-maintenance-whatsapp-bot
+          mkdir -p lambda-backend/agents/tools-connection/5000-whatsapp
+          mkdir -p lambda-backend/agents/tools-connection/5010-whatsapp
+          mkdir -p lambda-backend/agents/tools-connection/5100-sharepoint
+          mkdir -p lambda-backend/agents/smart-agents-and-bots/ariel/A1000-ariel-whatsapp-bot
+          mkdir -p lambda-backend/agents/LLM/maintenance/MLLM1000-servicecall-identifier
+          mkdir -p lambda-backend/agents/LLM/ariel/ALLM1000-command-parser
+          mkdir -p lambda-backend/agents/smart-agents-and-bots/maintenance/M10010-troubleshoot-bot
+          mkdir -p lambda-backend/agents/LLM/LLM2000-invoice-analyzer
+          mkdir -p lambda-backend/database/maintenance
+          mkdir -p lambda-backend/fonts
+
+          cp backend/server.py lambda-backend/
+          cp fonts/DejaVuSans.ttf lambda-backend/fonts/
+          cp fonts/DejaVuSans-Bold.ttf lambda-backend/fonts/
+          touch lambda-backend/agents/__init__.py
+          touch lambda-backend/agents/specific-mission-agents/__init__.py
+          touch lambda-backend/agents/specific-mission-agents/priority-specific-agents/__init__.py
+          touch lambda-backend/agents/specific-mission-agents/priority-specific-agents/100-customer/__init__.py
+          touch lambda-backend/agents/specific-mission-agents/priority-specific-agents/200-invoices/__init__.py
+          touch lambda-backend/agents/specific-mission-agents/priority-specific-agents/210-invoice-closer/__init__.py
+          touch lambda-backend/agents/specific-mission-agents/priority-specific-agents/300-service-call/__init__.py
+          touch lambda-backend/agents/specific-mission-agents/priority-specific-agents/420-invoice-printer/__init__.py
+          touch lambda-backend/agents/specific-mission-agents/priority-specific-agents/600-equipment/__init__.py
+          touch lambda-backend/agents/specific-mission-agents/priority-specific-agents/800-reports/__init__.py
+          touch lambda-backend/agents/flows/__init__.py
+          touch lambda-backend/agents/flows/ariel/__init__.py
+          touch lambda-backend/agents/tools-connection/__init__.py
+          touch lambda-backend/agents/tools-connection/5000-whatsapp/__init__.py
+          touch lambda-backend/agents/tools-connection/5010-whatsapp/__init__.py
+          touch lambda-backend/agents/tools-connection/5100-sharepoint/__init__.py
+          touch lambda-backend/agents/smart-agents-and-bots/__init__.py
+          touch lambda-backend/agents/smart-agents-and-bots/maintenance/__init__.py
+          touch lambda-backend/agents/smart-agents-and-bots/ariel/__init__.py
+          touch lambda-backend/agents/smart-agents-and-bots/ariel/A1000-ariel-whatsapp-bot/__init__.py
+          touch lambda-backend/agents/LLM/__init__.py
+          touch lambda-backend/agents/LLM/maintenance/__init__.py
+          touch lambda-backend/agents/LLM/maintenance/MLLM1000-servicecall-identifier/__init__.py
+          touch lambda-backend/agents/LLM/ariel/__init__.py
+          touch lambda-backend/agents/LLM/ariel/ALLM1000-command-parser/__init__.py
+          touch lambda-backend/agents/smart-agents-and-bots/maintenance/M10010-troubleshoot-bot/__init__.py
+          touch lambda-backend/agents/LLM/LLM2000-invoice-analyzer/__init__.py
+          touch lambda-backend/database/__init__.py
+          touch lambda-backend/database/maintenance/__init__.py
+
+          cp agents/specific-mission-agents/priority-specific-agents/100-customer/100-customer_reader.py lambda-backend/agents/specific-mission-agents/priority-specific-agents/100-customer/
+          cp agents/specific-mission-agents/priority-specific-agents/200-invoices/200-invoice_writer.py lambda-backend/agents/specific-mission-agents/priority-specific-agents/200-invoices/
+          cp agents/specific-mission-agents/priority-specific-agents/210-invoice-closer/210-invoice_closer.py lambda-backend/agents/specific-mission-agents/priority-specific-agents/210-invoice-closer/
+          cp agents/specific-mission-agents/priority-specific-agents/300-service-call/300-service_call_writer.py lambda-backend/agents/specific-mission-agents/priority-specific-agents/300-service-call/
+          cp agents/specific-mission-agents/priority-specific-agents/420-invoice-printer/420-invoice_printer.py lambda-backend/agents/specific-mission-agents/priority-specific-agents/420-invoice-printer/
+          cp agents/specific-mission-agents/priority-specific-agents/600-equipment/600-equipment_reader.py lambda-backend/agents/specific-mission-agents/priority-specific-agents/600-equipment/
+          cp agents/specific-mission-agents/priority-specific-agents/800-reports/aging_report.py lambda-backend/agents/specific-mission-agents/priority-specific-agents/800-reports/
+          cp agents/flows/ariel/AR1000-debt-customer-report.py lambda-backend/agents/flows/ariel/
+          cp agents/flows/ariel/AR10010-uncharged-delivery.py lambda-backend/agents/flows/ariel/
+          cp agents/flows/ariel/AR10020-invoices.py lambda-backend/agents/flows/ariel/
+          cp agents/smart-agents-and-bots/maintenance/M1000-maintenance-whatsapp-bot/M1000_bot.py lambda-backend/agents/smart-agents-and-bots/maintenance/M1000-maintenance-whatsapp-bot/
+          cp agents/LLM/maintenance/MLLM1000-servicecall-identifier/MLLM1000_servicecall_identifier.py lambda-backend/agents/LLM/maintenance/MLLM1000-servicecall-identifier/
+          cp agents/LLM/ariel/ALLM1000-command-parser/ALLM1000_command_parser.py lambda-backend/agents/LLM/ariel/ALLM1000-command-parser/
+          cp agents/LLM/ariel/ALLM1000-command-parser/pdf_generator.py lambda-backend/agents/LLM/ariel/ALLM1000-command-parser/
+          cp agents/LLM/maintenance/rag_retrieval.py lambda-backend/agents/LLM/maintenance/
+          cp agents/LLM/LLM2000-invoice-analyzer/LLM2000_invoice_analyzer.py lambda-backend/agents/LLM/LLM2000-invoice-analyzer/
+          cp agents/smart-agents-and-bots/maintenance/M10010-troubleshoot-bot/M10010_bot.py lambda-backend/agents/smart-agents-and-bots/maintenance/M10010-troubleshoot-bot/
+          cp database/maintenance/maintenance_db.py lambda-backend/database/maintenance/
+          cp database/maintenance/troubleshoot_sessions_db.py lambda-backend/database/maintenance/
+          cp database/maintenance/bot_scripts_db.py lambda-backend/database/maintenance/
+          cp database/maintenance/bot_prompts_db.py lambda-backend/database/maintenance/
+          cp database/maintenance/knowledge_db.py lambda-backend/database/maintenance/
+          cp database/maintenance/delivery_notes_db.py lambda-backend/database/maintenance/
+          cp agents/tools-connection/5000-whatsapp/5000-whatsapp_bot.py lambda-backend/agents/tools-connection/5000-whatsapp/
+          cp agents/tools-connection/5010-whatsapp/5010-whatsapp_bot.py lambda-backend/agents/tools-connection/5010-whatsapp/
+          cp agents/tools-connection/5100-sharepoint/5100-sharepoint_connector.py lambda-backend/agents/tools-connection/5100-sharepoint/
+          cp agents/smart-agents-and-bots/ariel/A1000-ariel-whatsapp-bot/A1000_bot.py lambda-backend/agents/smart-agents-and-bots/ariel/A1000-ariel-whatsapp-bot/
+
+      # ── Build Node.js Lambda package ─────────────────────
+      - name: Prepare Node.js Lambda
+        run: |
+          cp agents/specific-mission-agents/priority-specific-agents/210-invoice-closer/lambda-handler.js lambda-invoice-closer/index.js
+          cp agents/specific-mission-agents/priority-specific-agents/210-invoice-closer/package.json lambda-invoice-closer/package.json
+          cp agents/specific-mission-agents/priority-specific-agents/210-invoice-closer/package-lock.json lambda-invoice-closer/package-lock.json
+          cd lambda-invoice-closer
+          npm ci --production
+
+      # ── SAM Build & Deploy ──────────────────────────────
+      - name: SAM build
+        run: sam build
+
+      - name: SAM deploy
+        run: |
+          sam deploy \
+            --stack-name ${{ env.STACK_NAME }} \
+            --region ${{ env.AWS_REGION }} \
+            --capabilities CAPABILITY_IAM \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --s3-bucket aws-sam-cli-managed-default-samclisourcebucket-ebw2dr9e8ezp \
+            --parameter-overrides \
+              Stage=${{ env.STAGE }} \
+              PriorityUrlDemo="${{ secrets.PRIORITY_URL_DEMO }}" \
+              PriorityUrlReal="${{ secrets.PRIORITY_URL_REAL }}" \
+              PriorityUsername="${{ secrets.PRIORITY_USERNAME }}" \
+              PriorityPassword="${{ secrets.PRIORITY_PASSWORD }}" \
+              WhatsAppPhoneNumberId="${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}" \
+              WhatsAppAccessToken="${{ secrets.WHATSAPP_ACCESS_TOKEN }}" \
+              WhatsAppVerifyToken="${{ secrets.WHATSAPP_VERIFY_TOKEN }}" \
+              WhatsAppPhoneNumberIdAriel="${{ secrets.WHATSAPP_PHONE_NUMBER_ID_ARIEL }}" \
+              WhatsAppAccessTokenAriel="${{ secrets.WHATSAPP_ACCESS_TOKEN_ARIEL }}" \
+              WhatsAppVerifyTokenAriel="${{ secrets.WHATSAPP_VERIFY_TOKEN_ARIEL }}" \
+              "OpenAiApiKey=${{ secrets.OPENAI_API_KEY }}" \
+              "AnthropicApiKey=${{ secrets.ANTHROPIC_API_KEY || 'not-configured' }}" \
+              "ClaudeModel=claude-sonnet-4-20250514" \
+              "RoutingScriptId=maintenance-troubleshoot" \
+              "SharePointTenantId=${{ secrets.SHAREPOINT_TENANT_ID }}" \
+              "SharePointClientId=${{ secrets.SHAREPOINT_CLIENT_ID }}" \
+              "SharePointClientSecret=${{ secrets.SHAREPOINT_CLIENT_SECRET }}" \
+              "GmailUser=${{ secrets.GMAIL_USER || 'arielmpinvoice@gmail.com' }}" \
+              "GmailAppPassword=${{ secrets.GMAIL_APP_PASSWORD || 'not-configured' }}" \
+              "UrbanGroupGmailUser=${{ secrets.URBANGROUP_GMAIL_USER || 'urbangroup300@gmail.com' }}" \
+              "UrbanGroupGmailAppPassword=${{ secrets.URBANGROUP_GMAIL_APP_PASSWORD || 'not-configured' }}"
+
+      # ── Upload Excel template to S3 ─────────────────────
+      - name: Upload template to S3
+        run: |
+          aws s3 cp "input/חשבונית עמלת גבייה - טמפלט.xlsx" \
+            "s3://urbangroup-templates-${{ env.STAGE }}/templates/invoice-template.xlsx"
+
+      # ── Build & Deploy Frontend ──────────────────────────
+      - name: Build frontend
+        run: |
+          cd website
+          npm ci
+          npm run build
+
+      - name: Deploy frontend to S3
+        run: |
+          aws s3 sync website/dist/ s3://urbangroup-frontend-${{ env.STAGE }}/ \
+            --delete \
+            --cache-control "public, max-age=31536000, immutable" \
+            --exclude "index.html" \
+            --exclude "favicon.svg"
+
+          aws s3 cp website/dist/index.html \
+            s3://urbangroup-frontend-${{ env.STAGE }}/index.html \
+            --cache-control "public, max-age=0, must-revalidate"
+
+      # ── Invalidate CloudFront cache ──────────────────────
+      - name: Invalidate CloudFront
+        run: |
+          CF_ID=$(aws cloudformation describe-stacks \
+            --stack-name ${{ env.STACK_NAME }} \
+            --query "Stacks[0].Outputs[?OutputKey=='CloudFrontDistributionId'].OutputValue" \
+            --output text)
+
+          aws cloudfront create-invalidation \
+            --distribution-id "$CF_ID" \
+            --paths "/index.html" "/"

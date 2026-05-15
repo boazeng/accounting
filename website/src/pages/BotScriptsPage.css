@@ -1,0 +1,742 @@
+.bs-page {
+  min-height: calc(100vh - var(--header-height));
+  padding: 32px 0 80px;
+  background: var(--color-bg);
+}
+
+.bs-back, .bs-back-btn {
+  display: inline-block;
+  color: var(--color-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  margin-bottom: 24px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.2s;
+}
+
+.bs-back:hover, .bs-back-btn:hover {
+  color: var(--color-primary);
+}
+
+.bs-header, .bs-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.bs-title {
+  font-size: var(--font-size-xl);
+  font-weight: 800;
+  color: var(--color-primary);
+}
+
+.bs-loading {
+  text-align: center;
+  padding: 40px;
+  color: var(--color-text-muted);
+}
+
+.bs-error {
+  background: #FFF0F0;
+  color: #C53030;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 16px;
+}
+
+.bs-success {
+  background: #F0FFF4;
+  color: #276749;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 16px;
+}
+
+.bs-save-msg {
+  margin-bottom: 16px;
+}
+
+/* ── Script List ──────────────────────────── */
+
+.bs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bs-card {
+  background: white;
+  border-radius: var(--radius-md);
+  padding: 20px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: box-shadow 0.2s, transform 0.15s;
+}
+
+.bs-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.bs-card-name {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--color-primary);
+  margin: 0 0 4px;
+}
+
+.bs-card-id {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  font-family: monospace;
+}
+
+.bs-card-meta {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin-right: 12px;
+}
+
+.bs-card-badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.bs-active {
+  background: #C6F6D5;
+  color: #276749;
+}
+
+.bs-inactive {
+  background: #FED7D7;
+  color: #C53030;
+}
+
+.bs-empty {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--color-text-muted);
+}
+
+/* ── Editor ──────────────────────────────── */
+
+.bs-section {
+  background: white;
+  border-radius: var(--radius-md);
+  padding: 24px;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+.bs-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.bs-section-title {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--color-primary);
+  margin: 0 0 16px;
+}
+
+.bs-section-header .bs-section-title {
+  margin: 0;
+}
+
+.bs-field {
+  margin-bottom: 14px;
+}
+
+.bs-field label {
+  display: block;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-bottom: 4px;
+}
+
+.bs-hint {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin-top: 2px;
+  display: block;
+}
+
+.bs-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #E2E8F0;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-base);
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.bs-input:focus {
+  outline: none;
+  border-color: var(--color-secondary);
+  box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.15);
+}
+
+.bs-disabled {
+  background: #F7FAFC;
+  color: var(--color-text-muted);
+}
+
+.bs-textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #E2E8F0;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-base);
+  font-family: inherit;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.bs-textarea:focus {
+  outline: none;
+  border-color: var(--color-secondary);
+  box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.15);
+}
+
+.bs-select {
+  padding: 8px 12px;
+  border: 1px solid #E2E8F0;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-base);
+  font-family: inherit;
+  background: white;
+}
+
+.bs-row {
+  display: flex;
+  gap: 16px;
+}
+
+.bs-half {
+  flex: 1;
+}
+
+.bs-save-btn {
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  padding: 10px 28px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.bs-save-btn:hover:not(:disabled) {
+  background: var(--color-secondary);
+}
+
+.bs-save-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.bs-add-btn {
+  background: #EBF5FF;
+  color: var(--color-secondary);
+  border: 1px dashed var(--color-secondary);
+  padding: 6px 16px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.bs-add-btn:hover {
+  background: #D6ECFF;
+}
+
+.bs-add-btn.bs-small {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.bs-remove-btn {
+  background: none;
+  border: 1px solid #FED7D7;
+  color: #C53030;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.bs-remove-btn:hover {
+  background: #FED7D7;
+}
+
+.bs-remove-btn.bs-small {
+  width: 28px;
+  height: 28px;
+  font-size: 12px;
+}
+
+/* ── Step Card ──────────────────────────── */
+
+.bs-step-card {
+  border: 1px solid #E2E8F0;
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  margin-bottom: 12px;
+  background: #FAFBFC;
+}
+
+.bs-step-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.bs-step-num {
+  width: 28px;
+  height: 28px;
+  background: var(--color-primary);
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.bs-step-id {
+  flex: 1;
+  font-family: monospace;
+  font-weight: 600;
+}
+
+.bs-step-type {
+  width: 140px;
+}
+
+/* ── Step Skip-If ──────────────────────── */
+
+.bs-step-skip {
+  margin-bottom: 10px;
+}
+
+.bs-step-skip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  background: #FFFBEB;
+  border: 1px dashed #F6AD55;
+  border-radius: var(--radius-sm);
+}
+
+.bs-step-skip-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #C05621;
+  white-space: nowrap;
+}
+
+.bs-skip-cond {
+  width: 120px;
+  font-size: 13px;
+}
+
+.bs-skip-val {
+  width: 100px;
+  font-size: 13px;
+}
+
+.bs-add-skip-btn {
+  background: none;
+  border: 1px dashed #E2E8F0;
+  color: var(--color-text-muted);
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.bs-add-skip-btn:hover {
+  border-color: #F6AD55;
+  color: #C05621;
+  background: #FFFBEB;
+}
+
+/* ── Buttons Section ────────────────────── */
+
+.bs-buttons-section {
+  margin-top: 8px;
+}
+
+.bs-buttons-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.bs-label {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.bs-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 10px;
+  background: white;
+  border-radius: var(--radius-sm);
+  border: 1px solid #EDF2F7;
+}
+
+.bs-btn-id {
+  width: 120px;
+  font-family: monospace;
+  font-size: 13px;
+}
+
+.bs-btn-title {
+  width: 160px;
+}
+
+.bs-btn-next {
+  width: 160px;
+}
+
+.bs-skip-if {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed #E2E8F0;
+}
+
+.bs-skip-label {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.bs-skip-field {
+  width: 120px;
+  font-size: 13px;
+  font-family: monospace;
+}
+
+.bs-skip-arrow {
+  color: var(--color-text-muted);
+}
+
+.bs-skip-goto {
+  width: 140px;
+  font-size: 13px;
+}
+
+/* ── Done Card ──────────────────────────── */
+
+.bs-done-card {
+  border: 1px solid #C6F6D5;
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  margin-bottom: 12px;
+  background: #F0FFF4;
+}
+
+.bs-done-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.bs-done-id {
+  flex: 1;
+  font-family: monospace;
+  font-weight: 600;
+}
+
+/* ── Bottom Bar ─────────────────────────── */
+
+.bs-bottom-bar {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 16px;
+}
+
+/* ── Header Actions ─────────────────────── */
+
+.bs-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.bs-advanced-link {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: color 0.2s;
+}
+
+.bs-advanced-link:hover {
+  color: var(--color-secondary);
+}
+
+.bs-back-simple {
+  display: block;
+  margin-top: 6px;
+}
+
+/* ── AI Section ─────────────────────────── */
+
+.bs-ai-section {
+  margin-bottom: 20px;
+}
+
+.bs-ai-toggle {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.bs-ai-toggle:hover {
+  opacity: 0.9;
+}
+
+.bs-ai-box {
+  margin-top: 12px;
+  background: white;
+  border: 1px solid #C3DAFE;
+  border-radius: var(--radius-md);
+  padding: 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+.bs-ai-hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: 0 0 10px;
+}
+
+.bs-ai-textarea {
+  margin-bottom: 12px;
+}
+
+.bs-ai-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  padding: 10px 24px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.bs-ai-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.bs-ai-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Simple Step Card ───────────────────── */
+
+.bs-simple-step {
+  border: 1px solid #E2E8F0;
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  margin-bottom: 4px;
+  background: #FAFBFC;
+}
+
+.bs-simple-step-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.bs-simple-question {
+  width: 100%;
+  margin-bottom: 10px;
+  box-sizing: border-box;
+}
+
+/* ── Type Toggle ────────────────────────── */
+
+.bs-type-toggle {
+  display: flex;
+  border: 1px solid #E2E8F0;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  flex: 1;
+}
+
+.bs-type-btn {
+  flex: 1;
+  padding: 7px 12px;
+  background: white;
+  border: none;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  transition: all 0.15s;
+  font-family: inherit;
+}
+
+.bs-type-btn + .bs-type-btn {
+  border-right: 1px solid #E2E8F0;
+}
+
+.bs-type-btn.active {
+  background: var(--color-primary);
+  color: white;
+  font-weight: 600;
+}
+
+.bs-type-btn:not(.active):hover {
+  background: #F7FAFC;
+}
+
+/* ── Step Controls ──────────────────────── */
+
+.bs-step-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.bs-move-btn {
+  background: none;
+  border: 1px solid #E2E8F0;
+  color: var(--color-text-muted);
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.bs-move-btn:hover {
+  background: #EBF5FF;
+  border-color: var(--color-secondary);
+  color: var(--color-secondary);
+}
+
+/* ── Simple Buttons Input ───────────────── */
+
+.bs-simple-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.bs-btn-chip-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* ── Step Connector ─────────────────────── */
+
+.bs-step-connector {
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 20px;
+  padding: 6px 0;
+  line-height: 1;
+}
+
+/* ── Add Step Button ────────────────────── */
+
+.bs-add-step-btn {
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px;
+  background: #F7FAFC;
+  border: 2px dashed #CBD5E0;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+
+.bs-add-step-btn:hover {
+  background: #EBF5FF;
+  border-color: var(--color-secondary);
+  color: var(--color-secondary);
+}
+
+/* ── Done Section ───────────────────────── */
+
+.bs-done-section {
+  border: 2px solid #C6F6D5;
+  background: #F0FFF4;
+}
+
+.bs-action-toggle {
+  display: flex;
+  border: 1px solid #E2E8F0;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  max-width: 400px;
+}

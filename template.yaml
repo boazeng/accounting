@@ -1,0 +1,467 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Urban Group - Priority ERP Integration Portal
+
+Parameters:
+  Stage:
+    Type: String
+    Default: prod
+  PriorityUrlDemo:
+    Type: String
+    NoEcho: true
+  PriorityUrlReal:
+    Type: String
+    NoEcho: true
+  PriorityUsername:
+    Type: String
+    NoEcho: true
+  PriorityPassword:
+    Type: String
+    NoEcho: true
+  WhatsAppPhoneNumberId:
+    Type: String
+    NoEcho: true
+  WhatsAppAccessToken:
+    Type: String
+    NoEcho: true
+  WhatsAppVerifyToken:
+    Type: String
+    NoEcho: true
+  WhatsAppPhoneNumberIdAriel:
+    Type: String
+    NoEcho: true
+    Default: ""
+  WhatsAppAccessTokenAriel:
+    Type: String
+    NoEcho: true
+    Default: ""
+  WhatsAppVerifyTokenAriel:
+    Type: String
+    NoEcho: true
+    Default: ""
+  OpenAiApiKey:
+    Type: String
+    NoEcho: true
+    Default: ""
+  AnthropicApiKey:
+    Type: String
+    NoEcho: true
+    Default: ""
+  ClaudeModel:
+    Type: String
+    Default: "claude-sonnet-4-20250514"
+  RoutingScriptId:
+    Type: String
+    Default: "maintenance-troubleshoot"
+  SharePointTenantId:
+    Type: String
+    NoEcho: true
+    Default: ""
+  SharePointClientId:
+    Type: String
+    NoEcho: true
+    Default: ""
+  SharePointClientSecret:
+    Type: String
+    NoEcho: true
+    Default: ""
+  GmailUser:
+    Type: String
+    Default: "arielmpinvoice@gmail.com"
+  GmailAppPassword:
+    Type: String
+    NoEcho: true
+    Default: ""
+  UrbanGroupGmailUser:
+    Type: String
+    Default: "urbangroup300@gmail.com"
+  UrbanGroupGmailAppPassword:
+    Type: String
+    NoEcho: true
+    Default: ""
+
+Globals:
+  Function:
+    Timeout: 60
+    MemorySize: 256
+    Environment:
+      Variables:
+        STAGE: !Ref Stage
+        PRIORITY_URL: !Ref PriorityUrlDemo
+        PRIORITY_URL_DEMO: !Ref PriorityUrlDemo
+        PRIORITY_URL_REAL: !Ref PriorityUrlReal
+        PRIORITY_USERNAME: !Ref PriorityUsername
+        PRIORITY_PASSWORD: !Ref PriorityPassword
+
+Resources:
+
+  # ── API Gateway ─────────────────────────────────────
+  ApiGateway:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref Stage
+      CorsConfiguration:
+        AllowOrigins:
+          - "*"
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+
+  # ── Python Lambda (Flask + Mangum) ──────────────────
+  UrbanGroupApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub urbangroup-api-${Stage}
+      CodeUri: ./lambda-backend/
+      Handler: handler.handler
+      Runtime: python3.13
+      Timeout: 120
+      MemorySize: 512
+      Environment:
+        Variables:
+          WHATSAPP_PHONE_NUMBER_ID: !Ref WhatsAppPhoneNumberId
+          WHATSAPP_ACCESS_TOKEN: !Ref WhatsAppAccessToken
+          WHATSAPP_VERIFY_TOKEN: !Ref WhatsAppVerifyToken
+          TEMPLATE_BUCKET: !Sub urbangroup-templates-${Stage}
+          TEMPLATE_KEY: templates/invoice-template.xlsx
+          INVOICE_CLOSER_FUNCTION: !Ref InvoiceCloserFunction
+          MESSAGES_TABLE: !Ref MessagesTable
+          SERVICE_CALLS_TABLE: !Ref ServiceCallsTable
+          OPENAI_API_KEY: !Ref OpenAiApiKey
+          WHATSAPP_PHONE_NUMBER_ID_ARIEL: !Ref WhatsAppPhoneNumberIdAriel
+          WHATSAPP_ACCESS_TOKEN_ARIEL: !Ref WhatsAppAccessTokenAriel
+          WHATSAPP_VERIFY_TOKEN_ARIEL: !Ref WhatsAppVerifyTokenAriel
+          ARIEL_MESSAGES_TABLE: !Ref ArielMessagesTable
+          OPENAI_MODEL: gpt-4o
+          ANTHROPIC_API_KEY: !Ref AnthropicApiKey
+          CLAUDE_MODEL: !Ref ClaudeModel
+          TROUBLESHOOT_SESSIONS_TABLE: !Ref TroubleshootSessionsTable
+          BOT_SCRIPTS_TABLE: !Ref BotScriptsTable
+          BOT_PROMPTS_TABLE: !Ref BotPromptsTable
+          KNOWLEDGE_TABLE: !Ref KnowledgeTable
+          DELIVERY_NOTES_TABLE: !Ref DeliveryNotesTable
+          IS_LAMBDA: "true"
+          ROUTING_SCRIPT_ID: !Ref RoutingScriptId
+          SHAREPOINT_TENANT_ID: !Ref SharePointTenantId
+          SHAREPOINT_CLIENT_ID: !Ref SharePointClientId
+          SHAREPOINT_CLIENT_SECRET: !Ref SharePointClientSecret
+          SHAREPOINT_SITE_URL: "https://yaelisrael.sharepoint.com"
+          GMAIL_USER: !Ref GmailUser
+          GMAIL_APP_PASSWORD: !Ref GmailAppPassword
+          URBANGROUP_GMAIL_USER: !Ref UrbanGroupGmailUser
+          URBANGROUP_GMAIL_APP_PASSWORD: !Ref UrbanGroupGmailAppPassword
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Sub urbangroup-templates-${Stage}
+        - LambdaInvokePolicy:
+            FunctionName: !Ref InvoiceCloserFunction
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MessagesTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ServiceCallsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ArielMessagesTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TroubleshootSessionsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BotScriptsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BotPromptsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref KnowledgeTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DeliveryNotesTable
+      Events:
+        ApiCatchAll:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /api/{proxy+}
+            Method: ANY
+        ApiRoot:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ApiGateway
+            Path: /api
+            Method: ANY
+
+  # ── Node.js Lambda (Invoice Closer) ────────────────
+  InvoiceCloserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub urbangroup-invoice-closer-${Stage}
+      CodeUri: ./lambda-invoice-closer/
+      Handler: index.handler
+      Runtime: nodejs20.x
+      Timeout: 90
+      MemorySize: 256
+
+  # ── DynamoDB Table for WhatsApp Messages ────────────
+  MessagesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub urbangroup-messages-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: status-created_at-index
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  # ── DynamoDB Table for Service Calls ────────────────
+  ServiceCallsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub urbangroup-service-calls-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+        - AttributeName: phone
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: status-created_at-index
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: phone-created_at-index
+          KeySchema:
+            - AttributeName: phone
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  # ── DynamoDB Table for Ariel WhatsApp Messages ──────
+  ArielMessagesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub urbangroup-ariel-messages-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: status-created_at-index
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  # ── DynamoDB Table for Troubleshooting Sessions ─────
+  TroubleshootSessionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub urbangroup-troubleshoot-sessions-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: phone
+          AttributeType: S
+      KeySchema:
+        - AttributeName: phone
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+
+  # ── DynamoDB Table for Bot Scripts ───────────────────
+  BotScriptsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub urbangroup-bot-scripts-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: script_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: script_id
+          KeyType: HASH
+
+  # ── DynamoDB Table for Bot Prompts ────────────────────
+  BotPromptsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub urbangroup-bot-prompts-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: prompt_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: prompt_id
+          KeyType: HASH
+
+  # ── DynamoDB Table for Knowledge Base (RAG) ───────────
+  KnowledgeTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub urbangroup-knowledge-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+
+  # ── DynamoDB Table for Delivery Notes ─────────────────
+  DeliveryNotesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub urbangroup-delivery-notes-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: status-created_at-index
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  # ── S3 Bucket for Templates ─────────────────────────
+  TemplateBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub urbangroup-templates-${Stage}
+
+  # ── S3 Bucket for Frontend ──────────────────────────
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub urbangroup-frontend-${Stage}
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Statement:
+          - Sid: AllowCloudFrontAccess
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub arn:aws:s3:::urbangroup-frontend-${Stage}/*
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}
+
+  # ── CloudFront Distribution ─────────────────────────
+  CloudFrontOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub urbangroup-oac-${Stage}
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt CloudFrontOAC.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+          - Id: ApiOrigin
+            DomainName: !Sub ${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com
+            CustomOriginConfig:
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+            OriginPath: !Sub /${Stage}
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          ForwardedValues:
+            QueryString: false
+        CacheBehaviors:
+          - PathPattern: /api/*
+            TargetOriginId: ApiOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+              - PUT
+              - POST
+              - PATCH
+              - DELETE
+            CachedMethods:
+              - GET
+              - HEAD
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway URL
+    Value: !Sub https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Stage}
+  CloudFrontUrl:
+    Description: CloudFront distribution URL
+    Value: !Sub https://${CloudFrontDistribution.DomainName}
+  CloudFrontDistributionId:
+    Description: CloudFront distribution ID (for cache invalidation)
+    Value: !Ref CloudFrontDistribution

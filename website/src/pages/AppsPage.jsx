@@ -1,0 +1,56 @@
+import { Link } from 'react-router-dom'
+import './ArielPage.css'
+
+export default function AppsPage() {
+  return (
+    <div className="ariel-page">
+      <div className="container">
+        <Link to="/" className="ariel-back">&rarr; חזרה לדף הבית</Link>
+
+        <h1 className="ariel-title">אפליקציות</h1>
+
+        <section className="ariel-sections">
+          <div className="ariel-sections-grid">
+            <Link to="/apps/supplier-invoices" className="ariel-section-card">
+              <span className="ariel-section-icon">📥</span>
+              <h3 className="ariel-section-title">קליטת חשבוניות ספק</h3>
+              <p className="ariel-section-desc">קליטת חשבוניות ספקים למערכת פריוריטי</p>
+              <span className="ariel-section-action">פתיחה &larr;</span>
+            </Link>
+            <Link to="/apps/supplier-invoice-entry" className="ariel-section-card">
+              <span className="ariel-section-icon">📝</span>
+              <h3 className="ariel-section-title">הזנת חשבוניות ספק</h3>
+              <p className="ariel-section-desc">הזנת חשבוניות ספק ויצירה בפריוריטי</p>
+              <span className="ariel-section-action">פתיחה &larr;</span>
+            </Link>
+            <Link to="/apps/invoice-printer" className="ariel-section-card">
+              <span className="ariel-section-icon">🖨️</span>
+              <h3 className="ariel-section-title">הדפסת חשבוניות מס</h3>
+              <p className="ariel-section-desc">הורדת חשבוניות מס מפריוריטי לפי מספר חשבונית</p>
+              <span className="ariel-section-action">פתיחה &larr;</span>
+            </Link>
+            <Link to="/apps/pdf-tools" className="ariel-section-card">
+              <span className="ariel-section-icon">📑</span>
+              <h3 className="ariel-section-title">כלי PDF</h3>
+              <p className="ariel-section-desc">איחוד קבצי PDF, הזזת דפים ומחיקה</p>
+              <span className="ariel-section-action">פתיחה &larr;</span>
+            </Link>
+            <Link to="/apps/pdf-sign" className="ariel-section-card">
+              <span className="ariel-section-icon">✍️</span>
+              <h3 className="ariel-section-title">חתימה על PDF</h3>
+              <p className="ariel-section-desc">הטענת PDF, הצבת תמונת חתימה בגרירה ושמירה</p>
+              <span className="ariel-section-action">פתיחה &larr;</span>
+            </Link>
+
+            <Link to="/apps/pdf-convert" className="ariel-section-card">
+              <span className="ariel-section-icon">🔄</span>
+              <h3 className="ariel-section-title">המרה לקובץ PDF</h3>
+              <p className="ariel-section-desc">המרת תמונות וקבצים ל-PDF — תומך במספר קבצים בו-זמנית</p>
+              <span className="ariel-section-action">פתיחה &larr;</span>
+            </Link>
+          </div>
+        </section>
+      </div>
+    </div>
+  )
+}

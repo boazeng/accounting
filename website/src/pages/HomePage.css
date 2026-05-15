@@ -1,0 +1,36 @@
+.home {
+  position: relative;
+  overflow-x: clip;
+}
+
+/* two soft aurora glows spanning the whole page:
+   one from the top-right corner, one from the bottom-left */
+.home::before,
+.home::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(95px);
+  pointer-events: none;
+  z-index: 0;
+}
+.home::before {
+  width: 640px;
+  height: 640px;
+  top: -240px;
+  right: -200px;
+  background: rgba(31, 58, 95, 0.20);
+}
+.home::after {
+  width: 640px;
+  height: 640px;
+  bottom: -240px;
+  left: -200px;
+  background: rgba(31, 58, 95, 0.20);
+}
+
+/* keep all page content above the glows */
+.home > * {
+  position: relative;
+  z-index: 1;
+}

@@ -1,0 +1,1334 @@
+
+
+<!DOCTYPE html>
+
+<html xmlns="http://www.w3.org/1999/xhtml" lang="he">
+<head id="masterHead"><meta charset="utf-8" /><meta http-equiv="X-UA-Compatible" content="IE=edge" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- The above 3 meta tags *must* come first in the head! -->
+    <meta name="description" /><meta name="author" />
+        <meta id="NewJquery" name="NewJquery" content="" />
+        <meta id="AppEnvironment" name="AppEnvironment" content="internet" />
+        <meta id="AllowWideDisplay" name="AllowWideDisplay" content="" />
+        <meta id="ToDoOnNituk" name="ToDoOnNituk" content="" />
+        <meta id="NitukClassProjectName" name="NitukClassProjectName" content="" />
+        <meta id="swMasterErrMail" name="AppEnvironment" content="" />
+          <meta id="SiteId" name="SiteId" content="" />
+        <meta id="SiteIdCv" name="SiteIdCv" content="" />
+        <meta id="SiteId-tCv" name="SiteId-tCv" content="" />
+    <title>
+	רשות המיסים - אישורים לצורך ניכוי מס
+</title>
+        <script type="text/javascript" src="/gmIshurim/ruxitagentjs_ICA7NVfqrux_10331260218130851.js" data-dtconfig="rid=RID_5186137|rpid=-1133035835|domain=taxes.gov.il|reportUrl=/gmIshurim/rb_b70a1f86-be69-4ddc-b6f5-a511070ea2de|app=229d29ffe938af5c|owasp=1|featureHash=ICA7NVfqrux|srsr=5000|rdnt=0|uxrgce=1|cuc=y6gmvhfk|mel=100000|expw=1|dpvc=1|lastModification=1775739710920|tp=500,50,0|srbbv=2|agentUri=/gmIshurim/ruxitagentjs_ICA7NVfqrux_10331260218130851.js"></script><link rel="stylesheet" href="../ShaamMaster2010/bootstrap/styles/bootstrap.min.css?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f" />
+        <link href="../ShaamMaster2010/bootstrap/styles/bootstrap-rtl.min.css?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f" rel="stylesheet" />
+      
+          <link href="../shaamAngularLibTemp/jsLib/updatedjq/jquery-ui.theme.min.css?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f" rel="stylesheet" />
+        <link href="../shaamAngularLibTemp/jsLib/updatedjq/jquery-ui.structure.min.css?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f" rel="stylesheet" />
+
+
+        
+
+        <script src="../shaamAngularLibTemp/jsLib/updatedjq/jquery-3.6.0.min.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f" type="text/javascript"></script>
+         <script src="../shaamAngularLibTemp/jsLib/updatedjq/jquery-ui.min.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f" type="text/javascript"></script>
+        <script src="../shaamAngularLibTemp/jsLib/updatedjq/jquery.mirgrate-3.3.2.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f" type="text/javascript"></script>
+        
+       
+        
+        
+
+
+        <script src="../shaamAngularLibTemp/jsLib/moment.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f" type="text/javascript"></script>
+        <script src="../shaamAngularLibTemp/jsLib/bootstrap.min.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f" type="text/javascript"></script>
+        <script src="../shaamAngularLibTemp/kendo/kendo.all.min.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f" type="text/javascript"></script>
+        <script src="../shaamAngularLibTemp/kendo/kendo.culture.he-IL.min.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+
+        
+        <script src="../../ShaamlibTemp/scriptsV1.10/shaamTimeOutDialog.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f" type="text/javascript"></script>
+        <script src="../../ShaamlibTemp/scriptsV1.10/shaamTimeOutDialogInternet.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f" type="text/javascript"></script>
+        <script src="../../ShaamlibTemp/scripts2010/shaamGeneralFunctions.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f" type="text/javascript"></script>
+        <script src="../../ShaamlibTemp/scripts2010/shaamAccessibleButtons.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f" type="text/javascript"></script>
+        <script src="../../ShaamlibTemp/scripts2010/shaamAccessibilty.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f" type="text/javascript"></script>
+        <script src="../../ShaamlibTemp/scripts2010/accessMenu.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f" type="text/javascript"></script>
+        
+
+
+        <script src="../shaamAngularLibTemp/jsLib/angular.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f" type="text/javascript"></script>
+        <script src="../shaamAngularLibTemp/jsLib/angular-translate.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/jsLib/angular-translate.min.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+
+        <link href="../shaamAngularLibTemp/kendo/kendo.common.min.css?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f" rel="stylesheet" />
+        <link href="../shaamAngularLibTemp/kendo/kendo.bootstrap.min.css?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f" rel="stylesheet" />
+        <link href="../shaamAngularLibTemp/kendo/kendo.rtl.min.css?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f" rel="stylesheet" />
+
+        <link id="csslinks" href="../ShaamMaster2010/bootstrap/Styles/ShaamBsStyle.css?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f" rel="stylesheet" />
+        <link href="../ShaamMaster2010/bootstrap/styles/directives.css?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f" type="text/css" rel="stylesheet" />
+        <link id="Negishut" rel="stylesheet" />
+    
+
+
+
+    <script type="text/javascript">
+        var tgl = 0;//narrow
+        $(document).ready(function () {
+            var stylecss = "../ShaamMaster2010/bootstrap/Styles/ShaamBsStyle.css";
+            var monoChromecss = "../ShaamMaster2010/styles/monochrome.css";
+            var contrastcss = "../ShaamMaster2010/styles/contrast.css";
+            accessMenu(stylecss, monoChromecss, contrastcss);
+
+            var env = document.getElementById("AppEnvironment").content.toLowerCase();
+            var AllowWideDisplay = document.getElementById("AllowWideDisplay");
+            var AllowWideDisplayVal = AllowWideDisplay.content;
+            if (AllowWideDisplayVal == "1" && env == "intranet") {
+                $("#widenarrow").show();
+            }
+            //    $(".access_menu").hide();
+            //    $(".access_button").show();
+            //    $('.access_button').click(function () {
+            //        $(".access_menu").slideToggle();
+            //    });
+            //    var mode = sessionStorage.getItem("mode");
+            //    if (mode == "monoChrome") {
+            //        ChangeCssMonoChrome();
+            //    }
+            //    else if (mode == "contrast") {
+            //        ChangeCssContrast();
+            //    }
+            //    else if (mode == "standard") {
+            //        ChangeCssStandard();
+            //    }
+        });
+
+        //function AddCss(href) {
+        //    var result = $("head").find("[data-bss]");
+        //    result.remove();
+        //    document.getElementById("Negishut").setAttribute("href", href);
+        //}
+        //function ChangeCssMonoChrome() {
+        //    sessionStorage.setItem("mode", "monoChrome");
+        //    var href = "../ShaamMaster2010/styles/monochrome.css";
+        //    AddCss(href);
+        //}
+        //function ChangeCssContrast() {
+        //    sessionStorage.setItem("mode", "contrast");
+        //    var href = "../ShaamMaster2010/styles/contrast.css";
+        //    AddCss(href);
+        //}
+        //function ChangeCssStandard() {
+        //    sessionStorage.setItem("mode", "standard");
+        //    var swNewJquery = document.getElementById("NewJquery");
+        //    var swNewJqueryValue = swNewJquery.content;
+        //    if (swNewJqueryValue == "1")
+        //        var href = "../ShaamMaster2010/bootstrap/styles/directives.css";
+        //    else
+        //        var href = "../ShaamMaster2010/bootstrap/styles/ShaamBsStyle.css";
+        //    AddCss(href);
+        //}
+        // function Negishut() {
+        //   window.open("../shaamMaster2010/negishut.html", "_blank", "toolbar=yes,scrollbars=yes,resizable=yes,top=500,left=500,width=1200,height=800");
+        //}
+        function OpenDialogSendMail() {
+            document.getElementById("masterMail").setAttribute("data-toggle", "modal");
+            document.getElementById("masterMail").setAttribute("data-target", "#dialogMasterSendMail");
+            document.getElementById("divMasterErr").style.display = "none";
+        }
+        function BtnMasterSendMail() {
+            var swMasterErrMail = document.getElementById("swMasterErrMail");
+            if (swMasterErrMail.content != "") {
+                if (document.getElementById("TBMasterName").value == "") {
+                    document.getElementById("divMasterErr").style.display = "block";
+                    document.getElementById("divMasterErr").innerHTML = "יש להזין שם"
+                    return false;
+                }
+                if (document.getElementById("DDLMasterPhonePrefix").value == "1") {
+                    document.getElementById("divMasterErr").style.display = "block";
+                    document.getElementById("divMasterErr").innerHTML = "יש לבחור קידומת טלפון"
+                    return false;
+                }
+                if (document.getElementById("TBMasterTelephoneNumber").value == "") {
+                    document.getElementById("divMasterErr").style.display = "block";
+                    document.getElementById("divMasterErr").innerHTML = "יש להזין מספר טלפון"
+                    return false
+                }
+                if (document.getElementById("TBMasterTelephoneNumber").value.length >= 1 && document.getElementById("TBMasterTelephoneNumber").value.length < 7) {
+                    document.getElementById("divMasterErr").style.display = "block";
+                    document.getElementById("divMasterErr").innerHTML = "יש להזין 7 ספרות"
+                    return false;
+                }
+                if (document.getElementById("TBMasterMail").value != "") {
+                    if (!validateEmailMaster(document.getElementById("TBMasterMail").value)) {
+                        document.getElementById("divMasterErr").style.display = "block";
+                        document.getElementById("divMasterErr").innerHTML = "כתובת מייל אינה תקינה"
+                        return false;
+                    }
+                }
+                if (document.getElementById("TextAreaMasterMail").value == "") {
+                    document.getElementById("divMasterErr").style.display = "block";
+                    document.getElementById("divMasterErr").innerHTML = "יש למלא תאור פניה";
+                    return false;
+                }
+                var zhotMaster ="";
+                var errDetails = document.getElementById("HFMasterErrMailDetails").value;
+                var userDetailsMaster = sessionStorage.getItem("userDetails");
+                if(userDetailsMaster!=null){
+                   var objUserDetailsMaster = JSON.parse(userDetailsMaster);
+                   zhotMaster = objUserDetailsMaster.O_ZHT;
+                }
+                var element = document.getElementById("TextAreaMasterMail").value;
+                var bodyMail = "<html>" + "<body><div align=right>" + element + "</br></br></br><div align=right><p align=right>" + ":פרטי הפונה  " + "</br>" + " ת''ז: " + zhotMaster + "</br>" + " שם: " + document.getElementById("TBMasterName").value + "</br>" + document.getElementById("DDLMasterPhonePrefix").value + "-" + document.getElementById("TBMasterTelephoneNumber").value + " :טלפון " + "</br>" + document.getElementById("TBMasterMail").value + " :מייל " + "</p></div></div></body>" + "</html>"
+                var objMail = { subject: "פניה בעקבות תקלה במערכת " + window.location.pathname.split('/')[1], body: bodyMail, to: swMasterErrMail.content, from: "" }
+                var urlApi = "";
+                var host = window.location.host.toLowerCase();
+                if ((host.indexOf("localhost") != -1)) {
+                    urlApi="http://shaamwebt/gdMailMasterApi/api/sendMail";
+                }
+                else{
+                    urlApi="../gdMailMasterApi/api/sendMail";
+                }       
+                $.ajax({
+                    url: urlApi,
+                    data: JSON.stringify(objMail),
+                    type: "POST",
+                    contentType: "application/json; charset=utf-8",
+                    dataType: "json",
+                    headers: { "shaam-auth": "Internet" },
+                    xhrFields: { withCredentials: true },
+                    async: true,
+                    cache: false,
+                    success: function (data) {
+                       setTimeout(function () { alert("הפניה נשלחה בהצלחה, יחזרו אליך בהקדם."); }, 1000);
+                    },
+                    error: function (data) {
+                    }
+                });
+                if (document.getElementById("TextAreaMasterMail").value != "") {
+                    document.getElementById("TextAreaMasterMail").value = "";
+                }
+                if (document.getElementById("DDLMasterPhonePrefix").value != "1") {
+                    document.getElementById("DDLMasterPhonePrefix").value = "1";
+                }
+                if (document.getElementById("TBMasterTelephoneNumber").value != "") {
+                    document.getElementById("TBMasterTelephoneNumber").value = "";
+                }
+                if (document.getElementById("TBMasterMail").value != "") {
+                    document.getElementById("TBMasterMail").value = "";
+                }
+                if (document.getElementById("TBMasterName").value != "") {
+                    document.getElementById("TBMasterName").value = "";
+                }
+                if (document.getElementById("divMasterErr").value != "") {
+                    document.getElementById("divMasterErr").style.display = "none";
+                }
+
+                $('#dialogMasterSendMail').modal('toggle');
+            }
+        }
+        function validTelMaster() {
+            if (document.getElementById("TBMasterTelephoneNumber").value.length >= 1 && document.getElementById("TBMasterTelephoneNumber").value.length < 7) {
+                document.getElementById("divMasterErr").style.display = "block";
+                document.getElementById("divMasterErr").innerHTML = "יש להזין 7 ספרות"
+            }
+            else {
+                document.getElementById("divMasterErr").style.display = "none";
+            }
+        }
+        function validMailMaster() {
+            if (!validateEmailMaster(document.getElementById("TBMasterMail").value)) {
+                document.getElementById("divMasterErr").style.display = "block";
+                document.getElementById("divMasterErr").innerHTML = "כתובת מייל אינה תקינה"
+            }
+            else {
+                document.getElementById("divMasterErr").style.display = "none";
+            }
+        }
+        function validateEmailMaster(validmasterEmail) {
+
+            var filter = /^([\w-\.]+@([\w-]+\.)+[\w-]{2,6})?$/;
+            if (filter.test(validmasterEmail)) {
+                return true;
+            }
+            else {
+                return false;
+            }
+        }
+        function BtnMasterBitulMail() {
+            if (document.getElementById("TextAreaMasterMail").value != "") {
+                document.getElementById("TextAreaMasterMail").value = "";
+            }
+            if (document.getElementById("DDLMasterPhonePrefix").value != "1") {
+                document.getElementById("DDLMasterPhonePrefix").value = "1";
+            }
+            if (document.getElementById("TBMasterTelephoneNumber").value != "") {
+                document.getElementById("TBMasterTelephoneNumber").value = "";
+            }
+            if (document.getElementById("TBMasterMail").value != "") {
+                document.getElementById("TBMasterMail").value = "";
+            }
+            if (document.getElementById("TBMasterName").value != "") {
+                document.getElementById("TBMasterName").value = "";
+            }
+            if (document.getElementById("divMasterErr").value != "") {
+                document.getElementById("divMasterErr").style.display = "none";
+            }
+        }
+        function GetDialogBootstrapNetScaler() {
+            //sessionStorage.clear();
+            var env = document.getElementById("AppEnvironment");
+            if (env.content.toUpperCase() == "INTERNET") {
+                sessionStorage.clear();
+                document.getElementById("yeziaa").setAttribute("data-toggle", "modal");
+                document.getElementById("yeziaa").setAttribute("data-target", "#dialogIshurNS");
+            }
+        }
+        function NitukNetScaler() {
+            var url = "";
+            var host = window.location.host.toLowerCase();
+            if ((host.indexOf("localhost") != -1) || (host.indexOf("shaamwebt") != -1) || (host.indexOf("shaamt") != -1) || (host.indexOf("nstest.taxes.gov.il") != -1)) {
+                url = "https://nstest.taxes.gov.il/nslogout";
+            }
+            else if (host.indexOf("shaamwebqa") != -1 || (host.indexOf("nsqa.taxes.gov.il") != -1)) {
+                url = "https://nsqa.taxes.gov.il/nslogout";
+            }
+            //else if (host.indexOf("cvwebt.taxes.gov.il") != -1) {
+            //    url = "https://cvwebt.taxes.gov.il/nslogout";
+            //}
+            //else if (host.indexOf("cvwebqa.taxes.gov.il") != -1) {
+            //    url = "https://cvwebqa.taxes.gov.il/nslogout";
+            //}
+            else {
+                url = "../nslogout";
+            }
+            window.location.href = url;
+        }
+        function LinkPrivateArea() {
+            var url = "";
+            var host = window.location.host.toLowerCase();
+            var env = document.getElementById("AppEnvironment");
+            if (env.content.toUpperCase() == "INTERNET") {
+                if ((host.indexOf("localhost") != -1) || (host.indexOf("shaamwebt") != -1) || (host.indexOf("shaamt") != -1) || (host.indexOf("nstest.taxes.gov.il") != -1)) {
+                    url = "https://nstest.taxes.gov.il/Srsherutatzmi/startpage.aspx";
+                }
+                else if ((host.indexOf("shaamwebqa") != -1) || (host.indexOf("nsqa.taxes.gov.il") != -1)) {
+                    url = "https://nsqa.taxes.gov.il/Srsherutatzmi/startpage.aspx";
+                }
+                else if (host.indexOf("cvwebt.taxes.gov.il") != -1) {
+                    url = "https://cvwebt.taxes.gov.il/Srsherutatzmi/startpage.aspx";
+                }
+                else if (host.indexOf("cvwebqa.taxes.gov.il") != -1) {
+                    url = "https://cvwebqa.taxes.gov.il/Srsherutatzmi/startpage.aspx";
+                }
+                else {
+                    url = "https://Secapp.taxes.gov.il/Srsherutatzmi/startpage.aspx";
+                }
+                window.open(url);
+            }
+        }
+        function wideNarrow() { //for wide/narrow format
+
+            if (tgl == 0) {
+                // for wide format
+                var frame = document.getElementsByClassName("frame");
+                $(".frame").css({ 'max-width': '100%' });
+                $("#widenarrow").removeClass("wide");
+                $("#widenarrow").addClass("narrow");
+                $("#widenarrow").text("פריסה רגילה");
+                $(".navbar").css({ 'background-repeat': 'repeat-x', 'max-width': '100%' });
+                $(".navbar-wrapper").css({ 'background-repeat': 'repeat-x' });
+                $(".header").css({ 'max-width': '100%' });
+                tgl = 1;
+
+            }
+            else if (tgl == 1) {
+                //for narrow format
+                $(".frame").css({ 'max-width': '966px' });
+                $("#widenarrow").removeClass("narrow");
+                $("#widenarrow").addClass("wide");
+                $("#widenarrow").text("פריסה רחבה");
+                $(".navbar").css({ 'background-repeat': 'no-repeat', 'max-width': '966px' });
+                $(".navbar-wrapper").css({ 'background-repeat': 'no-repeat' });
+                $(".header").css({ 'max-width': '966px' });
+                tgl = 0;
+            }
+        }
+        function gotoHelpDesk() {
+            var hostName = window.location.host.toLowerCase();
+            // FOR customers prod
+            if (hostName == 'customers.shaam.gov.il' || hostName == 'shaam.taxes.gov.il' || hostName == 'customers.taxes.gov.il' || hostName == 'ctsweb' || hostName == 'ctsweb.taxes.gov.il' || hostName == 'ctsmyzweb' || hostName == 'ctsmyzweb.taxes.gov.il') {
+
+                window.open("https://shaam.taxes.gov.il/myz/Pages/crmrequest.aspx");
+            }
+                //FOR localhost/ test/ 
+            else if ((hostName == 'localhost') || (hostName == 'shaamwebt') || (hostName == 'shaamwebqa') || (hostName == 'shaamt') || (hostName == 'nstest.taxes.gov.il') || (hostName == 'nsqa.taxes.gov.il')) {
+                window.open("http://shaamweb/shaamcrmportal");
+            }
+            else if (hostName == 'shaamweb') { //FOR prod misradim
+                window.open("http://shaamweb/shaamcrmportal");
+            }
+            else {
+                window.open("http://shaamweb/shaamcrmportal");
+            }
+        }
+
+
+
+    </script>
+    
+    
+   <!-- Matomo -->
+    <script type="text/javascript">
+        var _paq = window._paq || [];
+        /* tracker methods like "setCustomDimension" should be called before "trackPageView" */
+   //    _paq.push(["setCookieDomain", "*.shaamweb"]);
+        _paq.push(['trackPageView']);
+        _paq.push(['enableLinkTracking']);
+        //
+        window.addEventListener('hashchange', function () {
+            //_paq.push(['setCustomUrl', '/' + window.location.hash.substr(1)]);
+            //  _paq.push(['setCustomUrl', window.location.pathname +"startpage.aspx" + window.location.hash.substr(1)]);
+           // _paq.push(['setCustomUrl', window.location.pathname.toLowerCase() + "#" + window.location.hash.substr(1).toLowerCase()]);
+             if (document.getElementsByTagName("h3")[0] != undefined && document.getElementsByTagName("h3")[0] != null && document.getElementsByTagName("h3")[0] != "") {
+                _paq.push(['setCustomUrl', window.location.pathname + "#" + window.location.hash.substr(1) + "/" + document.getElementsByTagName("h3")[0].innerText]);
+            }
+            else {
+                  _paq.push(['setCustomUrl', window.location.pathname +"#" + window.location.hash.substr(1)]);
+            }
+            //_paq.push(['setDocumentTitle', 'My New Title']);
+            _paq.push(['setDocumentTitle', document.title]);
+            _paq.push(['trackPageView']);
+        });  
+        //
+        (function () {
+            
+          
+        
+            var hostName = window.location.host.toLowerCase();
+            if (hostName == "secapp.taxes.gov.il") {
+                 SiteId = document.getElementById("SiteIdCv").content;
+                var u = "//secapp.taxes.gov.il/matomosh/"; //for CV
+            }
+            if (hostName == "cvwebt.taxes.gov.il") {
+                 SiteId = document.getElementById("SiteId-tCv").content;
+                //var u = "//matomosh.t-sh.shaam.gov.il/"; //for T-CV
+                    var u = "//cvwebt.taxes.gov.il/"; //for T-CV
+                
+            }
+            if (hostName == 'shaamweb') {
+                SiteId = document.getElementById("SiteId").content;
+                var u = "//10.83.71.115/matomosh/";//for shaamweb  (SH)
+            }
+             else if (hostName == 'shaamwebt' || hostName == 'nstest.taxes.gov.il') {
+               SiteId = document.getElementById("SiteId").content;
+               //var u = "//matomosh.t-sh.shaam.gov.il/";//for T-SH
+               var u = "//10.83.71.115/matomosh/";//for shaamweb  (SH)
+            }
+           // var u = "//matomo.t-sh.shaam.gov.il/matomo/";//for T-SH
+            if(u!=undefined &&(SiteId!=null && SiteId!= "" && SiteId!= undefined)){
+            _paq.push(['setTrackerUrl', u + 'matomo.php']);
+             _paq.push(['setSiteId', SiteId]);
+            var d = document, g = d.createElement('script'), s = d.getElementsByTagName('script')[0];
+            g.type = 'text/javascript'; g.async = true; g.defer = true; g.src = u + 'matomo.js'; s.parentNode.insertBefore(g, s);
+            }//end if
+          
+        })();
+ 
+function toggleAriaExpand() {
+            var button = document.getElementById("navbar-toggle");
+
+            if (button) {
+                var currentExpandState = button.getAttribute("aria-expanded");
+
+                if (currentExpandState === "true") {
+                    button.setAttribute("aria-expanded", "false");
+                    button.setAttribute("aria-label", "פתח תפריט");
+                } else {
+                    button.setAttribute("aria-expanded", "true");
+                    button.setAttribute("aria-label", "סגור תפריט");
+                }
+            }
+}
+
+    </script>
+
+    <!-- End Matomo Code -->
+</head>
+<body>
+    <a href="#" class="access_button">נגישות<img src="../../shaammaster2010/Images/negishut.jpg" alt="תפריט נגישות" />
+    </a>
+    <div class="access_menu" style="display: none">
+        <strong>תפריט נגישות</strong><hr>
+        <a href="#" onclick="ChangeCssMonoChrome('../ShaamMaster2010/styles/monochrome.css')" tabindex="0">שחור לבן</a><hr />
+        <a href="#" onclick="ChangeCssContrast('../ShaamMaster2010/styles/contrast.css')" tabindex="0" aria-label="מצב לילה">ניגודיות כהה</a><hr />
+        <a href="#" onclick="ChangeCssStandard('../ShaamMaster2010/bootstrap/Styles/ShaamBsStyle.css')" tabindex="0">תצוגה רגילה</a><hr />
+        
+    </div>
+
+    <div id="container">
+        <form method="post" action="./frmInputMekabel.aspx?cur=0" id="form1">
+<div class="aspNetHidden">
+<input type="hidden" name="__EVENTTARGET" id="__EVENTTARGET" value="" />
+<input type="hidden" name="__EVENTARGUMENT" id="__EVENTARGUMENT" value="" />
+<input type="hidden" name="__VIEWSTATE" id="__VIEWSTATE" value="/wEPDwULLTE2NjM0MTI1NDMPZBYCZg9kFgICAQ9kFgwCAQ8WAh4JaW5uZXJodG1sBSnXkNeZ16nXldeo15nXnSDXnNem15XXqNeaINeg15nXm9eV15kg157XoWQCAw8PFgIeB1Zpc2libGVoZGQCBQ8PFgIfAWhkZAIHDw8WAh8BZ2RkAgkPDxYCHwFoZGQCEw9kFggCAQ8WAh8ABRPXnteZ15PXoiDXnNee16fXkdecZAIHDw8WAh4EVGV4dAUg16HXpNeo16og15HXmden15XXqNeqINep15LXldeZ15RkZAIJDw8WBB4IQ3NzQ2xhc3MFCWVyckJjb2xvch4EXyFTQgICZGQCDw8PFgIeB0VuYWJsZWRnZGRkdqrqz70aSz2bhWsEtxpAd3znoqKUuAQlZwRz1ugFVHg=" />
+</div>
+
+<script type="text/javascript">
+//<![CDATA[
+var theForm = document.forms['form1'];
+if (!theForm) {
+    theForm = document.form1;
+}
+function __doPostBack(eventTarget, eventArgument) {
+    if (!theForm.onsubmit || (theForm.onsubmit() != false)) {
+        theForm.__EVENTTARGET.value = eventTarget;
+        theForm.__EVENTARGUMENT.value = eventArgument;
+        theForm.submit();
+    }
+}
+//]]>
+</script>
+
+
+<div class="aspNetHidden">
+
+	<input type="hidden" name="__VIEWSTATEGENERATOR" id="__VIEWSTATEGENERATOR" value="D2FFCF45" />
+	<input type="hidden" name="__EVENTVALIDATION" id="__EVENTVALIDATION" value="/wEdAAqCNGfdFNzVlAa7UH5lOr79Y9jyUnfrUXqYymOy8HNYtdfX4foCMJL823fN5qFiJB9ctj+ZgL1C4ccFzHTUJdrd4Ns5WTJ3Mndw/MIFfajFSX1hkV/txT8SbXUaV7GJdKk9XZJwEHs2ikyC6ghI99/HHoRMzP5TwqlQGeZO3dZB2dqBEutYcBbLZyxm5Vgn8cTpc9KasT4AQt4yDuowlBKau90eiaJRnP6nRu2rUYRLSGrTMpW6BSeXutDIYhmv6sM=" />
+</div>
+
+
+            <div class="header-wrapper" role="banner">
+                <div class="header">
+
+                    <div class="row">
+                        <div class="col-sm-12 text-center">
+                             <a href="#pageContent" tabindex="0" class="daleg">דלג לתוכן ראשי </a>&nbsp;
+
+                            <span style="color: #FFFFFF; font-size: 9px;" id="userName"></span>
+                        </div>
+                    </div>
+
+
+                    <div class="row">
+
+                        <div class="col-xs-9 intcss">
+                            <a id="taxLogo" href="http://www.taxes.gov.il/" title="רשות המיסים">
+                                <img src="../../shaammaster2010/images/logo_shaam.png" alt="מעבר לאתר רשות המסים"/>
+
+                            </a>
+                        </div>
+                        <div class="col-xs-9 msrdcss">
+                            <a id="taxLogo" href="startpage.aspx" title="רשות המיסים">
+                                <img src="../../shaammaster2010/images/logo_shaam_blue.png" alt="לוגו רשות המסים"/>
+
+                            </a>
+                        </div>
+
+                        <div class="col-xs-3 govLogo text-left">
+                            <a id="gov" href="http://www.gov.il/" title="הפורטל הממשלתי">
+                                <img src="../../shaammaster2010/images/logo_gov.png" alt="מעבר לאתר gov.il"/></a>
+                        </div>
+
+                    </div>
+                    <div class="row">
+
+                        <div class="col-sm-12">
+                            <span id="appName">אישורים לצורך ניכוי מס</span>
+                        </div>
+
+
+                    </div>
+
+                </div>
+            </div>
+
+
+
+
+            <div class="navbar-wrapper">
+                <nav class="navbar navbar-default" aria-label="ניווט ראשי">
+
+                    <div class="navbar-header">
+                        <button type="button"  id="navbar-toggle" class="navbar-toggle" data-toggle="collapse" data-target=".js-navbar-collapse" aria-haspopup="menu" aria-controls="menuBar" onclick="toggleAriaExpand()" aria-expanded="false" aria-label= "פתח תפריט">
+
+                            <span class="icon-bar" aria-hidden="true"></span>
+                            <span class="icon-bar" aria-hidden="true"></span>
+                            <span class="icon-bar" aria-hidden="true"></span> 
+                        </button>
+
+                    </div>
+                    <div class="collapse navbar-collapse js-navbar-collapse" style="position: relative;" id="menuBar">
+                        <ul class=" json-menu nav navbar-nav">
+                        </ul>
+                    </div>
+
+                </nav>
+            </div>
+            <!-- /menu -->
+
+
+
+
+
+            <div class="frame" id="frame" role="main">
+                <div class="breadcrumb-wrapper">
+                    <div class="user_menu">
+                        
+                        
+                        
+                        <a onclick="LinkPrivateArea();" id="privateArea" class="user" href="javascript:__doPostBack(&#39;ctl00$privateArea&#39;,&#39;&#39;)">אזור אישי</a>
+                        
+                        <a onclick="wideNarrow();return false;" id="widenarrow" class="wide" href="javascript:__doPostBack(&#39;ctl00$widenarrow&#39;,&#39;&#39;)" style="display: none;">פריסה רחבה</a>
+                        
+                    </div>
+                    <ol id="breadcrumb" class="breadcrumb">
+
+                        
+                    </ol>
+
+                </div>
+                <div class="modal fade" id="dialogIshurNS" role="dialog">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                                <h2 class="modal-title">התראה לפני התנתקות</h2>
+                            </div>
+                            <div class="modal-body" style="direction: ltr; text-align: left" id="messageIshur3">
+                                <p align="right" dir="rtl">
+                                    בחרת להתנתק ממערכות רשות המסים,
+                        <br />
+                                    אם הינך מזוהה באמצעות כרטיס חכם, ניתוק מלא יתבצע לאחר הוצאת הכרטיס
+                        <br />
+                                    מקורא הכרטיס וסגירת הדפדפן.
+                        <br />
+                                    אם הינך מזוהה באמצעות מערכת זיהוי לקוח (קוד משתמש), לחיצה על אישור תנתק אותך מהמערכת.
+                                </p>
+
+
+                            </div>
+                            <p align="left">
+                                
+                                
+                                <input onclick="__doPostBack('ctl00$btnMasterIshurNituk','')" name="ctl00$btnMasterIshurNituk" type="button" id="btnMasterIshurNituk" class="btn btn-primary" value="אישור" />
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <input type="hidden" name="ctl00$HFMasterErrMailDetails" id="HFMasterErrMailDetails" />
+                <div class="modal fade" id="dialogMasterSendMail" role="dialog">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                                <h2 class="modal-title">שליחת פניה במקרה של תקלה</h2>
+                            </div>
+                            <div class="modal-body" style="direction: rtl; text-align: right">
+                                <div class="row">
+                                    <div class="col-sm-9">
+                                        <div id="divMasterErr" class="alert alert-danger" style="display: none;"></div>
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="col-sm-3">
+                                        <span style="color: Red">*</span><label for="TBMasterName">שם</label>
+                                    </div>
+                                    <div class="col-sm-6">
+                                        <input type="text" id="TBMasterName" style="width: 100%">
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="col-sm-3">
+                                        <span style="color: Red">*</span><label for="TBMasterTelephoneNumber">מספר טלפון / נייד</label>
+                                    </div>
+                                    <div class="col-sm-4">
+                                        <input type="number" id="TBMasterTelephoneNumber" onblur="validTelMaster()" oninput="javascript: if(this.value.length > this.maxLength) this.value = this.value.slice(0, this.maxLength);this.value = this.value.replace(/[^0-9.,]/g, '');" style="width: 100%" maxlength="7">
+                                    </div>
+
+                                    <div class="col-sm-2">
+                                        <select id="DDLMasterPhonePrefix" style="width: 100%">
+                                            <option value="1">נא לבחור</option>
+                                            <option value="02">02</option>
+                                            <option value="03">03</option>
+                                            <option value="04">04</option>
+                                            <option value="08">08</option>
+                                            <option value="09">09</option>
+                                            <option value="050">050</option>
+                                            <option value="051">051</option>
+                                            <option value="052">052</option>
+                                            <option value="053">053</option>
+                                            <option value="054">054</option>
+                                            <option value="055">055</option>
+                                            <option value="057">057</option>
+                                            <option value="058">058</option>
+                                            <option value="072">072</option>
+                                            <option value="073">073</option>
+                                            <option value="074">074</option>
+                                            <option value="077">077</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="col-sm-3">
+                                        <label for="TBMasterMail">כתובת מייל</label>
+                                    </div>
+                                    <div class="col-sm-6">
+                                        <input type="text" id="TBMasterMail" style="width: 100%" onblur="validMailMaster()">
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-sm-3">
+                                        <span style="color: Red">*</span><label for="TextAreaMasterMail">תאור הפניה</label>
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="col-sm-12">
+                                        <textarea id="TextAreaMasterMail" style="width: 425px; height: 120px"></textarea>
+                                    </div>
+
+
+                                </div>
+                                <div class="row">
+                                    <div class="col-sm-3">
+                                        <span style="color: Red;">* שדה חובה  </span>
+                                    </div>
+                                </div>
+
+                                <div class="row" align="left">
+                                    <div class="col-sm-12">
+                                        <input name="ctl00$btnMasterSendMail" type="button" id="btnMasterSendMail" class="shlicha" onclick="BtnMasterSendMail()" aria-label="שליחת הפניה" />
+                                    </div>
+
+                                </div>
+
+
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+                <div id="pageContent" class="page_content">
+
+                    
+    <script src="Scripts/JSCommon.js" type="text/javascript"></script>
+    <script type="text/javascript" src="../shaamlib/scripts/check_sifrat_bikoret.js"></script>
+    <script src="Scripts/JSTmicha.js" type="text/javascript"></script>
+    <script type="text/javascript">
+        $(document).ready(function () {
+
+            //chkShowCaptcha();
+
+            glbAlwOnlyNum($("#txtMisTik")); //allow only numbers and disable autocomplete 
+
+            glbAlwOnlyNum($("#txtMisTikMeshalem")); //allow only numbers and disable autocomplete 
+
+            $("#txtMisTik").on("focusout", function () { glbChkMisTik($(this)); });
+
+            $("#txtMisTikMeshalem").on("focusout", function () { glbChkMisTik($(this)); });
+
+            //$("#txtCaptcha").attr("autocomplete", "off");
+
+            $("#btnNext").on("click", next_clicked);
+
+            $("#btnNextSpecial").on("click", nextSpecial_clicked);
+
+            $("#btnClear").on("click", clear_clicked);
+
+
+
+        });
+
+        function next_clicked() {
+            glbResetErr($("#txtMisTik"));
+
+            //chk validation
+            if (!glbChkMisTik($("#txtMisTik"))) {
+                //$("#hidShowCaptcha").val(parseInt($("#hidShowCaptcha").val()) + 1);
+                //chkShowCaptcha();
+                return false;
+            }
+
+            if (!glbChkIfZeroOrEmpty($("#txtMisTik"))) {
+                //$("#hidShowCaptcha").val(parseInt($("#hidShowCaptcha").val()) + 1);
+                //chkShowCaptcha();
+                glbSetErr($("#txtMisTik"), "יש למלא מספר תיק");
+                return false;
+            }
+
+
+            $('body').css('cursor', 'wait');
+            $(this).css('cursor', 'wait');
+            //document.getElementById('prog').style.display = "block";
+            //document.getElementById('prog').style.textAlign = "left";
+            //setTimeout("progSrc()", 50);
+            return true;
+        }
+
+        function nextSpecial_clicked() {
+            glbResetErr($("#txtMisTikMeshalem"));
+            if (!glbChkMisTik($("#txtMisTikMeshalem"))) {
+                //$("#hidShowCaptcha").val(parseInt($("#hidShowCaptcha").val()) + 1);
+                //chkShowCaptcha();
+                return false;
+            }
+
+            if (!glbChkIfZeroOrEmpty($("#txtMisTikMeshalem"))) {
+                glbSetErr($("#txtMisTikMeshalem"), "יש למלא מספר תיק משלם");
+                //$("#hidShowCaptcha").val(parseInt($("#hidShowCaptcha").val()) + 1);
+                //chkShowCaptcha();
+                return false;
+            }
+
+            //if ($("#txtMisTikMeshalem").val().substring(0, 1) != "9" || $("#txtMisTikMeshalem").val().length != 9) {
+            //    glbSetErr($("#txtMisTikMeshalem"), "יש למלא מספר תיק ניכויים בלבד");
+            //    return false;
+            //}
+        }
+
+        function clear_clicked() {
+            $("#lblErr").html("");
+            $("#txtMisTik").val("");
+            $("#txtMisTik").removeClass("errBcolor");
+            if ($("#divTikMeshalem").is(":visible")) {
+                $("#txtMisTikMeshalem").val("");
+                $("#txtMisTikMeshalem").removeClass("errBcolor");
+                $("#divTikMeshalem").css("display", "none");
+                $("#divTikMeshalemTitle").css("display", "none");
+                $("#divTikTitle").css("display", "block");
+                $("#divTikSubTitle").css("display", "block");
+                $("#txtMisTik").prop("disabled", false);
+                $("#txtMisTik").removeClass("textBoxDis");
+                $("#txtMisTik").trigger("focus");
+                $("#btnNext").css("display", "inline");
+                $("#btnNextSpecial").css("display", "none");
+            }
+            //$("#txtCaptcha").val("");
+            //$("#txtCaptcha").removeClass("errBcolor");
+            return false;
+        }
+
+        function progSrc() {
+            document.getElementById('prog').src = '../shaamMaster2010/images/icons/inProgress.gif';
+        }
+
+        //function chkShowCaptcha() {
+        //    if ($("#hidShowCaptcha").val() > 5) {
+        //        $("#divCaptcha").css("display", "block");
+        //    }
+        //}
+
+
+
+    </script>
+    
+    <div class="row">
+        <div class="col-sm-12">
+            <h2 style="margin-top: 0px;">מידע על אישורי ניכוי מס במקור וניהול ספרים</h2>
+        </div>
+    </div>
+    <div class="row">
+        <div class="col-sm-7">
+            <h3 style="margin: 0px;"><label id="lblTitle">מידע למקבל</label></h3>
+        </div>
+    </div>
+    <div id="divTikTitle" class="row">
+        <div class="col-sm-7 fontbold">
+            <div class="icon info noclick"></div>
+            לקבלת המידע יש למלא מספר ישות
+        </div>
+    </div>
+    <div id="divTikSubTitle" class="row">
+        <div class="col-sm-7">(תעודת זהות / מספר חברה / שותפות)</div>
+    </div>
+    <div class="row">
+        <div class="col-sm-7">
+            <span id="lblErr" class="errfont" aria-live="assertive">ספרת ביקורת שגויה</span>&nbsp;
+        </div>
+    </div>
+    <div class="row">
+        <div class="col-md-5 col-sm-7">
+            <div class="bluediv">
+                <label for="txtMisTik">
+                    מספר ישות
+                </label>
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+                                <input name="ctl00$ContentUsersPage$txtMisTik" type="text" value="513956639" maxlength="9" id="txtMisTik" class="errBcolor" aria-required="true" title="מספר ישות מקבל" style="width:150px;" />
+            </div>
+        </div>
+        <div class="col-sm-5">
+            <div class="BoxA" style="padding: 10px;">
+                <b>מערכת אישורים חדשה:
+                </b>
+                <br />
+                לקבלת אישור עבור בן הזוג יש להזין את תעודת הזהות שלו.
+            </div>
+        </div>
+    </div>
+    <div id="divTikMeshalemTitle" class="row" style="display: none;">
+        <div class="col-sm-7 fontbold">
+            <div class="icon info noclick"></div>
+            יש למלא מספר תיק משלם (מס הכנסה / עוסק מורשה /שותפות)
+        </div>
+    </div>
+    <div id="divTikMeshalem" class="row" style="display: none;">
+        <div class="col-md-5 col-sm-7">
+            <div class="bluediv">
+                <label for="txtMisTik">
+                    מספר תיק משלם
+                </label>
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+                                <input name="ctl00$ContentUsersPage$txtMisTikMeshalem" type="text" maxlength="9" id="txtMisTikMeshalem" aria-required="true" title="מספר תיק משלם" style="width:115px;" />
+            </div>
+        </div>
+    </div>
+    <div class="row">&nbsp;</div>
+    
+    <div class="row">
+        <div class="col-md-5 col-sm-7 text-left">
+            <input type="submit" name="ctl00$ContentUsersPage$btnNext" value="המשך" id="btnNext" class="btn btn-primary" style="margin: auto; height: auto;" />
+            <input type="submit" name="ctl00$ContentUsersPage$btnNextSpecial" value="המשך" id="btnNextSpecial" class="btn btn-primary" style="margin: auto; height: auto; display: none;" />
+            <button class="btn btn-primary" type="button" id="btnClear" style="margin: auto;">
+                ניקוי
+            </button>
+        </div>
+    </div>
+    
+    
+
+                </div>
+                <!-- /content -->
+            </div>
+            <!-- /frame -->
+
+
+            <footer class="footer" id="footer">
+                <div>
+                    <ul>
+                        <li><a id="homePage">עמוד הבית</a></li>
+                        <li><a id="odotShaam" href="#">אודות</a></li>
+                        <li id="mapatHaatarLi"><a id="mapatHaatar" href="#">מפת האתר</a></li>
+                        <li id="zorKesherLi"><a id="zorKesher" href="#">
+                            <img id="imgEgov" alt="" />
+                        </a></li>
+                        <li class="last"><a href="#">לראש העמוד</a></li>
+                        <li class="last"><a href="javascript:void(0);" data-toggle="modal" data-target="#dialogAccessibility" role="button" aria-haspopup="dialog">הצהרת נגישות</a></li>
+
+                    </ul>
+                </div>
+                                    <div class="modal fade" id="dialogAccessibility" role="dialog" aria-labelledby="dialogAccessibility" >
+                        <div class="modal-dialog" style="margin-top:3rem">
+                            <div class="modal-content" style="height:100%">
+                                <div class="modal-header">
+                                    <button type="button" class="close" data-dismiss="modal" aria-label="סגירת חלון הצהרת נגישות">&times;</button>
+                                    <h2 class="modal-title" id="dialogAccessibilityTitle">הצהרת נגישות</h2>
+                                </div>
+                                <div class="modal-body" style="direction: rtl; text-align: right">
+                                    <p>רשות המסים חשיבות רבה במתן שירות שוויוני לאנשים עם מוגבלות. 
+                                        הנגשת האתר, נועדה להפוך את השירותים והמידע הדיגיטליים לזמינים, 
+                                        ידידותיים ונוחים יותר לשימוש עבור אנשים עם מוגבלות.</p>
+
+                                    <h4 style="margin-bottom: 0rem;" aria-level="3">רמת הנגישות</h4>
+                                    <p>האתר עומד בדרישות תקנות שוויון זכויות לאנשים עם מוגבלות 
+                                        (התאמות נגישות לשירות), התשע"ג 2013 (להלן: "התקנות") ברמת AA,
+                                        וכן, מיישם את המלצות מסמך WCAG2.0 מאת ארגון W3C.</p>
+
+                                    <h4 style="margin-bottom: 0rem;" aria-level="3">תיקונים והתאמות נגישות שבוצעו</h4>
+                                    <ul class="list">
+                                        <li>אמצעי הניווט באתר פשוטים וברורים.</li>
+                                        <li>האתר מאפשר שימוש באמצעות קוראי מסך. האתר נבדק באמצעות קורא המסך JAWS.</li>
+                                        <li>תכני האתר כתובים באופן ברור, מסודר והיררכי. במידת הצורך קיימים הסברים לצד התוכן.</li>
+                                        <li>האתר מותאם לצפייה בדפדפנים מודרניים.</li>
+                                        <li>התאמת האתר לתצוגה תואמת מגוון מסכים ורזולוציות.</li>
+                                        <li>תוכן האתר כתוב בשפה פשוטה וברורה.</li>
+                                        <li>לכל התמונות באתר יש הסבר טקסטואלי חלופי (alt).</li>
+                                        <li>האתר מאפשר שינוי גודל הגופן על ידי שימוש במקש Ctrl וגלגלת העכבר.</li>
+                                        <li>אין באתר שימוש בתצוגת טקסט נע או מהבהב.</li>
+                                    </ul>
+                                    <h4 style="margin-bottom: 0rem;" aria-level="3">החרגות</h4>
+                                    <p style="margin-bottom:0rem">חשוב לציין, כי למרות מאמצינו להנגיש את כלל הדפים באתר וביתר הנכסים הדיגיטליים שלנו, 
+                                        ייתכן שיתגלו חלקים או יכולות שלא הונגשו כראוי או שטרם הונגשו.</p>
+                                    <p style="background-color:yellow">במערכת הזדהות לקוח, 
+                                        קיימת בעיה ידועה אחת בשימוש  בקורא מסך ובמקלדת כאשר יש שגיאה בפרטי כרטיס אשראי. 
+                                        בדרך כלל אנו משתדלים להעביר את המשתמש לשדה השגוי, 
+                                        מטעמי נוחות, אולם במקרה ספציפי זה אין אפשרות לעשות כך ולכן משתמשי קוראי מסך
+                                        ומשתמשי מקלדת מתבקשים ללחוץ מספר פעמים על מקשי SHIFT ו TAB כדי להגיע אל השדה או השדות השגויים.</p>
+                                    
+                                    <h3 style="margin-bottom: 0rem;">יצירת קשר בנושא נגישות האתר</h3>
+                                    <p>אם נתקלתם בבעיה בנושא נגישות באתר או באחד ממוצרינו, 
+                                        נשמח לקבל הערות ובקשות, באמצעות פנייה לאחראי הנגישות בדואר האלקטרוני
+                                        <a href="mailto:ravivbe2@taxes.gov.il">ravivbe2@taxes.gov.il</a></li>
+                                    </p>
+                                    <p>כדי שנוכל לטפל בבעיה בדרך הטובה ביותר, אנו ממליצים מאוד לצרף פרטים מלאים ככל שניתן:
+                                        <span class="d-block">תיאור הבעיה.</span>
+                                        <span class="d-block">מהי הפעולה שניסיתם לבצע.</span>
+                                        <span class="d-block">קישור לדף שבו גלשתם.</span>
+                                        <span class="d-block">סוג הדפדפן וגרסתו.</span>
+                                        <span class="d-block">מערכת הפעלה.</span>
+                                        <span class="d-block">סוג הטכנולוגיה המסייעת (במידה והשתמשתם).</span>
+                                    </p>
+
+                                     <h4 style="margin-bottom: 0rem;" aria-level="3">פרטי רכז הנגישות</h4>
+                                    <p>רכז נגישות ביחידות אגף מס הכנסה ומיסוי מקרקעין מר רביב בן אשר בדואר אלקטרוני
+                                         <a href="mailto:ravivbe2@taxes.gov.il">ravivbe2@taxes.gov.il</a>
+                                        או בטלפון:
+                                         <a href="tel:074-7615727">074-7615727</a>
+                                    </p>
+
+                                    <a href="https://www.gov.il/he/departments/general/accessibility-declaration" style="margin-top:2rem">למידע על נגישות ברשות המיסים</a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+            </footer>
+
+        
+<script type="text/javascript">
+document.getElementById('userName').innerHTML = document.getElementById('userName').innerHTML + ' ' +'17/04/2026 C01';
+var appEnvironment='internet';
+document.getElementById('breadcrumb').innerHTML ='';
+document.getElementById('homePage').href='http://www.gov.il/he/departments/israel_tax_authority';
+document.getElementById('mapatHaatar').innerHTML = '© כל הזכויות שמורות';
+document.getElementById('mapatHaatar').href='https://www.misim.gov.il/ShaamMaster2010/copyRights.html';
+document.getElementById('odotShaam').href= 'https://www.misim.gov.il/shaamMaster2010/odotShaamInt.html';
+document.getElementById('zorKesher').href= 'http://www.gov.il';
+document.getElementById('imgEgov').src='../ShaamMaster2010/images/govil2.gif';
+document.getElementById('imgEgov').alt='שער הממשלה';
+
+var _SwTimeOutDialogMaster = undefined;
+
+AccessibilityButtons.setAriaLabel();
+
+</script>
+</form>
+
+    </div>
+
+
+
+    
+        <script src="../shaamAngularLibTemp/jsLib/angular-ui-router.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/jsLib/angular-sanitize.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/jsLib/setMenu.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/jsLib/SunScanWeb.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+
+        <script src="../shaamAngularLibTemp/scripts/sessionStorage.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/kendo/kendo.angular.min.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f" type="text/javascript"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-authentication/shaam-authentication-module.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-authentication/shaam-authentication-config.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-authentication/shaam-authentication-run.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-authentication/Services/shaam-authentication-service.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-authentication/directives/login/shaam-login.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-authentication/Services/shaam-user-details-service.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-common/shaam-common-module.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-common/shaam-common-config.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-common/shaam-common-run.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-common/services/shaam-server-api-proxy-service.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+
+
+        <script src="../shaamAngularLibTemp/modules/shaam-common/services/shaam-url-encode-service.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-common/services/shaam-languages-dictionary.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-common/services/confirm-before-reload.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f" charset="utf-8"></script>
+
+        <script src="../shaamAngularLibTemp/scripts/shaam-pdf-viewer.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-common/directives/shaamPdfStreamviewer/shaam-pdf-stream-viewer.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-common/directives/shaamUserSimulator/shaam-user-simulator.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-common/filters/file-extentions-filter.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/shaam-ui-module.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/shaam-ui-config.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/shaam-ui-run.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-validation/shaam-validation-module.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-validation/directive/shaam-group-validation.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-validation/directive/shaam-input-validation.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-validation/factory/shaam-validators.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-validation/directive/shaam-input-custom-validation.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/DropDownBank/shaam-ddl-bank.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/DropDownAnaf/shaam-ddl-anaf.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/DropDownCountries/shaam-ddl-countries.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/DropDownList/shaam-ddl.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/DropDownListFromLocalSrc/shaam-ddl-local-src.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/fileUpload/shaam-file-upload.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/textEditor/shaam-text-editor.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/DatePicker/shaam-date-picker.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/DatePickerTkufa/shaam-date-picker-tkufa.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/DatePickerRange/shaam-datepicker-range.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/CurrencyTextBox/shaam-currency-textBox.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/DropDownMas/shaam-ddl-mas.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/Grid/shaam-grid.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/Buttons/shaam-buttons.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/AutoComplete/shaam-auto-complete.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/HebrewOnly/hebrew-only.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/EnglishOnly/english-only.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/EnglishNumbersOnly/english-numbers-only.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/KidometNumber/shaam-ddl-kidometnumber.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/BankAutoComplete/shaam-Bank-auto-complete.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/DropDownBankSnif/shaam-ddl-bank-snif.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/DropDownSettl/shaam-ddl-settl.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/DropDownEmploy/shaam-ddl-employ.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/DropDownMisradim/shaam-ddl-misradim.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/DropDownSettlStreet/shaam-ddl-settl-street.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/DropDownMisradimHuliyot/shaam-ddl-misradim-huliyot.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/MultiSelectEmploy/shaam-ms-employ.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/SettlAutoComplete/shaam-settl-auto-complete.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/IdTextBox/shaam-id-textBox.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/TikTextBox/shaam-tik-textBox.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/TikKibutzTextBox/shaam-tik-kibutz-text-box.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/TikChevraTextBox/shaam-tik-chevra-text-box.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/TikNikuiTextBox/shaam-tik-nikui-text-box.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/EmailTextBox/shaam-email-text-box.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/NumOnly/num-only.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/NumDotOnly/shaam-num-dot-only.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/HebrewNumbersOnly/hebrew-numbers-only.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/Numeric/shaam-numeric-updown.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/GeneralInput/shaam-general-input.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/WindowOpen/shaam-window-open.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/WindowOpenClose/shaam-window-open-close.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/WindowOpenGeneralBtn/shaam-window-open-general-btn.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/BankAccountNum/bank-account-num.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/wizard/shaam-wizard.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/tabstrip/shaam-tabstrip.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/tabstripVertical/shaam-tabstrip-verti.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/AutoCompleteAnafim/shaam-auto-complete-anaf.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/ShaamTooltip/shaam-tooltip.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/ShaamRadioButtons/shaam-radio-buttons.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/checkBoxButtons/shaam-check-box-buttons.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/AutoCompleteSettleStreet/shaam-ac-settl-street.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/groupButtons/shaam-group-buttons.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/ShaamChart/shaam-chart.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/shaamQR/shaam-Q-R.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/pleaseWait/please-wait.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/LanguagesButtons/languages-buttons.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/BankSnifAutoComplete/shaam-Bank-Snif-auto-complete.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/genralMultyselect/shaam-genral-ms.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/divButtons/shaam-div-buttons.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/iconButtons/shaam-icon-buttons.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/ScanButton/shaam-scan-button.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/ShaamRadioButtonsGroup/shaam-radio-buttons-group.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/shaamTreeView/shaam-tree-view.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/shaamTreeViewWin/shaam-tree-view-win.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/shaamTreeViewWinMulti/shaam-tree-view-win-multi.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/shaamCopyFile/shaam-copy-file.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+        <script src="../shaamAngularLibTemp/modules/shaam-ui/directives/shaamRadialGauge/shaam-radial-gauge.js?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f"></script>
+
+
+
+
+    
+    
+
+
+    
+    
+    
+    <div style="display: none" id="tmicha1">
+ <p>לקוח/ה נכבד/ה
+            <br />
+            לתמיכה ביישום זה, ניתן לפנות אל מרכז המידע והשרותים המקוונים של רשות המסים, בערוצים המפורטים להלן:
+        </p>
+
+        <ul>
+            <li>
+                <p><strong><u role="heading" aria-level="3">פניה מקוונת</u></strong>
+                    <br>
+                    באמצעות מערכת הפניות באינטרנט <a href="https://secapp.taxes.gov.il/srpniyotcrm/#/newPniya">פניה לרשות המסים</a>
+                    <br>
+                    לבחור בתאור הפניה המתאים ולפרט בקצרה על נושא הפניה שלך.
+                </p>
+            </li>
+            <li>
+                <p><strong><u role="heading" aria-level="3">פניה טלפונית</u></strong>
+                    <br>
+                    &minus;&nbsp;&nbsp;לתמיכה בכרטיסים חכמים בהפעלה ראשונית יש לחייג 1299 למוקד ממשל זמין
+                    <br>
+                    &minus;&nbsp;&nbsp;לתמיכה לאחר כניסה ליישם, לחייג 4954* (כוכבית 4954)
+                </p>
+            </li>
+        </ul>
+        <br />
+        <b>
+            תמיד לשירותכם,
+            <br />
+            מרכז המידע והשירותים המקוונים
+        </b>
+    </div>
+
+
+
+
+    
+    <div style="display: none" id="tmicha2">
+     <p dir="rtl">
+            בתמיכה בישום או לדיווח על תקלה ניתן לפנות
+            <br />
+            למרכז התמיכה
+            <br />
+            <a href="#" onclick="gotoHelpDesk()">לפנייה כתובה למרכז התמיכה (מומלץ!) ניתן ללחוץ כאן</a>
+            <br />
+            <br />
+            או בטלפון: 02-5688688
+            <br />
+            ימים א'-ה' בין השעות: 07:00-19:00
+            <br />
+            יום ו' בין השעות: 07:00-12:30
+          </p>
+        <br />
+        <br />
+    </div>
+    
+    
+    <div style="display: none" id="tmichaIntranetArabic">
+
+        <p dir="rtl">
+            الدعم في التطبيق او الإبلاغ عن خلل او مشكلة يمكن الإخطار
+            <br />
+            لمكتب المساعدة
+            <br />
+            الهاتف: 02-5688688
+            <br />
+            أيام الاحد حتى الخميس بين الساعات: 19:00 - 07:00
+            <br />
+            يوم الجمعة بين الساعات: 12:30 – 07:00
+        </p>
+        <br />
+        <br />
+
+    </div>
+    
+    
+    <div style="display: none" id="tmichaInternetArabic">
+        <p dir="rtl">
+            المراجع/ة الكريم/ة،
+            <br />
+            للحصول على مساعدة في هذا التطبيق، يمكن التوجه الى مركز الاستعلامات والخدمات لسلطة الضرائب بواسطة الطرق التالية:
+        </p>
+        
+
+        <p dir="rtl" style="display: none">
+            <u><b>البريد الالكتروني: </b></u>
+            <br />
+            يجب إرسال رسالة إلى العنوان: 
+            <span></span>
+
+            <br />
+            يجب وصف العطل في الرسالة / الرجاء بإيجاز، ومع ذكر:
+            <br />
+            الاسم الكامل، رقم هاتف للرجوع ورقم الملف (إن وجد).
+            <br />
+        </p>
+        <p dir="rtl">
+            <u><b>الدعم عبر الهاتف:</b></u>
+            <br />
+            <b>تشغيل التطبيق والاخطاء:</b>
+            <br />
+            هاتف 4954* (* ضرائب) او 1-222-4594 او 02-5656400
+            <br />
+            <b>البطاقات الذكية:</b>
+            <br />
+            هاتف: 02-6664646
+        </p>
+
+        <p dir="rtl">
+            دائما لخدمتكم،
+            <br />
+            مركز الاستعلامات والخدمات الهاتفية لسلطة الضرائب
+        </p>
+        <br />
+    </div>
+    
+    
+    <div style="display: none" id="tmichaIntranetEnglish">
+
+        <p dir="ltr">
+            For technical support or reporting a problem please notify
+            <br />
+            Our help desk
+            <br />
+            Phone number: 025688688
+            <br />
+            Days Sunday to Thursday from 07:00 to 20:00
+            <br />
+            Friday from 07:00 to 12:30
+
+        </p>
+        <br />
+        <br />
+    </div>
+    
+    
+    <div style="display: none" id="tmichaInternetEnglish">
+        <p dir="ltr">
+            Dear client,
+            <br />
+            For assistance, please contact the Israel Tax Authority information call center through one   
+            <br />
+            of the following means:
+        </p>
+        
+        <p dir="rtl" style="display: none">
+            <u><b>Email:</b></u>
+            <br />
+            Please send a message to
+            <span></span>
+
+            <br />
+            In your message, please provide a short description of the problem/request, and specify:
+            <br />
+            Full name, telephone number and case number (in case it is known to you).
+            <br />
+        </p>
+        <p dir="ltr">
+            <u><b>Telephone support:</b></u>
+            <br />
+            <b>Operation and troubleshooting:</b>
+            <br />
+            On telephone number *4954 or 1-222-4594 or 02-5656400 
+            <br />
+            <b>Smart cards:</b>
+            <br />
+            Telephone number: 02-6664646
+        </p>
+        <p dir="rtl">
+            Always at your service,
+            <br />
+            The Israel Tax Authority information call center
+        </p>
+        <br />
+    </div>
+    
+    <script>
+        var x = 
+        setMenu('resources/menu.json', x);
+    </script>
+    <script type="text/javascript">
+        var link = document.createElement('link');
+        var hl = document.getElementsByTagName('head')[0];
+        var env = document.getElementById("AppEnvironment");
+        if (env.content.toUpperCase() == "INTERNET") {
+            link.href = '../ShaamMaster2010/bootstrap/Styles/AngularGovMaster.css?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f';
+            $('.intcss').css("display", "block");
+            $('.msrdcss').css("display", "none");
+        }
+        else {
+            //      var imgOff = document.getElementsByClassName("govLogo");
+
+            $('.govLogo').css("display", "none");
+            $('.msrdcss').css("display", "block");
+            $('.intcss').css("display", "none");
+
+            link.href = '../ShaamMaster2010/bootstrap/Styles/AngularBlueMaster.css?gdv=7428f726-25ea-464d-bf76-f833a6f1bd0f';
+        }
+
+        link.rel = 'stylesheet';
+        link.type = 'text/css';
+        hl.appendChild(link);
+
+
+    </script>
+</body>
+</html>
+
+
+<script id="f5_cspm">(function(){var f5_cspm={f5_p:'JEIBJEMAANJPHJJFKAFCIAHBCGJPNALFJEKHLADNKNHLHGMCHNEGIIGGKDMIOJAHHIABFPMLAABNPFHKKJCAGOCIAAMAFPMJPGABOOIANGOFMGOHNNHNPBLIGGIMLFIC',setCharAt:function(str,index,chr){if(index>str.length-1)return str;return str.substr(0,index)+chr+str.substr(index+1);},get_byte:function(str,i){var s=(i/16)|0;i=(i&15);s=s*32;return((str.charCodeAt(i+16+s)-65)<<4)|(str.charCodeAt(i+s)-65);},set_byte:function(str,i,b){var s=(i/16)|0;i=(i&15);s=s*32;str=f5_cspm.setCharAt(str,(i+16+s),String.fromCharCode((b>>4)+65));str=f5_cspm.setCharAt(str,(i+s),String.fromCharCode((b&15)+65));return str;},set_latency:function(str,latency){latency=latency&0xffff;str=f5_cspm.set_byte(str,40,(latency>>8));str=f5_cspm.set_byte(str,41,(latency&0xff));str=f5_cspm.set_byte(str,35,2);return str;},wait_perf_data:function(){try{var wp=window.performance.timing;if(wp.loadEventEnd>0){var res=wp.loadEventEnd-wp.navigationStart;if(res<60001){var cookie_val=f5_cspm.set_latency(f5_cspm.f5_p,res);window.document.cookie='f5avr1948326264aaaaaaaaaaaaaaaa_cspm_='+encodeURIComponent(cookie_val)+';path=/;'+'';}
+return;}}
+catch(err){return;}
+setTimeout(f5_cspm.wait_perf_data,100);return;},go:function(){var chunk=window.document.cookie.split(/\s*;\s*/);for(var i=0;i<chunk.length;++i){var pair=chunk[i].split(/\s*=\s*/);if(pair[0]=='f5_cspm'&&pair[1]=='1234')
+{var d=new Date();d.setTime(d.getTime()-1000);window.document.cookie='f5_cspm=;expires='+d.toUTCString()+';path=/;'+';';setTimeout(f5_cspm.wait_perf_data,100);}}}}
+f5_cspm.go();}());</script>

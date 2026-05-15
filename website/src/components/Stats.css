@@ -1,0 +1,70 @@
+.kpis {
+  padding: 8px 0 24px;
+}
+
+.kpis-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.kpi {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 18px;
+  padding: 20px;
+  transition: transform 0.24s ease, box-shadow 0.24s ease,
+    background 0.24s ease, border-color 0.24s ease;
+}
+.kpi:hover {
+  transform: translateY(-8px) scale(1.02);
+  background: var(--color-bg-white);
+  border-color: var(--color-border);
+  box-shadow: 0 26px 48px rgba(28, 27, 25, 0.16);
+}
+
+.kpi-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* the KPI title in rust (chosen option B) */
+.kpi-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-accent);
+}
+
+.kpi-ico {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-primary);
+}
+
+.kpi-val {
+  font-family: var(--font-family-en);
+  font-size: 2.1rem;
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 8px 0 10px;
+}
+
+.kpi-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.kpi-delta i { font-size: 0.62rem; font-style: normal; }
+.kpi-delta-up { color: var(--color-pos); }
+.kpi-delta-down { color: var(--color-accent); }
+.kpi-delta-neutral { color: var(--color-text-light); font-weight: 500; }
+
+@media (max-width: 1024px) {
+  .kpis-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 480px) {
+  .kpis-grid { grid-template-columns: 1fr; }
+}

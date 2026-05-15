@@ -1,0 +1,1240 @@
+"""
+M10010 - Data-Driven Bot Script Engine
+Executes conversation scripts stored in DynamoDB.
+Scripts define steps, buttons, text templates, skip conditions, and done actions.
+
+The engine is generic - it reads the script JSON and executes it step by step.
+No hardcoded conversation flow - everything comes from the database.
+
+Flow:
+  Message arrives → M1000 saves to DB → hands off to M10010
+  M10010 loads script from DB → greets customer → follows step flow → saves result
+"""
+
+import os
+import uuid
+import time
+import json
+import logging
+import requests as _requests
+from datetime import datetime
+
+logger = logging.getLogger("urbangroup.M10010")
+
+# Lazy-load DB modules
+_session_db = None
+_maint_db = None
+_scripts_db = None
+_equipment_reader = None
+_service_call_writer = None
+
+SESSION_TTL_SECONDS = 30 * 60  # 30 minutes
+DEFAULT_SCRIPT_ID = "maintenance-troubleshoot"
+
+
+def _get_session_db():
+    global _session_db
+    if _session_db is None:
+        try:
+            from database.maintenance import troubleshoot_sessions_db
+            _session_db = troubleshoot_sessions_db
+        except ImportError:
+            import importlib.util
+            db_path = os.path.join(
+                os.path.dirname(__file__), "..", "..", "..", "..",
+                "database", "maintenance", "troubleshoot_sessions_db.py",
+            )
+            db_path = os.path.normpath(db_path)
+            spec = importlib.util.spec_from_file_location("troubleshoot_sessions_db", db_path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            _session_db = mod
+    return _session_db
+
+
+def _get_maint_db():
+    global _maint_db
+    if _maint_db is None:
+        try:
+            from database.maintenance import maintenance_db
+            _maint_db = maintenance_db
+        except ImportError:
+            import importlib.util
+            db_path = os.path.join(
+                os.path.dirname(__file__), "..", "..", "..", "..",
+                "database", "maintenance", "maintenance_db.py",
+            )
+            db_path = os.path.normpath(db_path)
+            spec = importlib.util.spec_from_file_location("maintenance_db", db_path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            _maint_db = mod
+    return _maint_db
+
+
+def _get_scripts_db():
+    global _scripts_db
+    if _scripts_db is None:
+        try:
+            from database.maintenance import bot_scripts_db
+            _scripts_db = bot_scripts_db
+        except ImportError:
+            import importlib.util
+            db_path = os.path.join(
+                os.path.dirname(__file__), "..", "..", "..", "..",
+                "database", "maintenance", "bot_scripts_db.py",
+            )
+            db_path = os.path.normpath(db_path)
+            spec = importlib.util.spec_from_file_location("bot_scripts_db", db_path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            _scripts_db = mod
+    return _scripts_db
+
+
+def _get_equipment_reader():
+    global _equipment_reader
+    if _equipment_reader is None:
+        try:
+            from agents.specific_mission_agents.priority_specific_agents import equipment_reader_600
+            _equipment_reader = equipment_reader_600
+        except ImportError:
+            import importlib.util
+            eq_path = os.path.join(
+                os.path.dirname(__file__), "..", "..", "..",
+                "specific-mission-agents", "priority-specific-agents",
+                "600-equipment", "600-equipment_reader.py",
+            )
+            eq_path = os.path.normpath(eq_path)
+            spec = importlib.util.spec_from_file_location("equipment_reader_600", eq_path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            _equipment_reader = mod
+    return _equipment_reader
+
+
+def _get_service_call_writer():
+    global _service_call_writer
+    if _service_call_writer is None:
+        try:
+            from agents.specific_mission_agents.priority_specific_agents import service_call_writer_300
+            _service_call_writer = service_call_writer_300
+        except ImportError:
+            import importlib.util
+            sc_path = os.path.join(
+                os.path.dirname(__file__), "..", "..", "..",
+                "specific-mission-agents", "priority-specific-agents",
+                "300-service-call", "300-service_call_writer.py",
+            )
+            sc_path = os.path.normpath(sc_path)
+            spec = importlib.util.spec_from_file_location("service_call_writer_300", sc_path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            _service_call_writer = mod
+    return _service_call_writer
+
+
+def _append_log(session, event, **kwargs):
+    """Append a diagnostic event to the session log."""
+    if "session_log" not in session:
+        session["session_log"] = []
+    entry = {"ts": datetime.utcnow().isoformat() + "Z", "event": event}
+    entry.update(kwargs)
+    session["session_log"].append(entry)
+
+
+def _is_demo_env():
+    """Check if running against demo Priority environment."""
+    return "demo" in os.environ.get("PRIORITY_URL", "").lower()
+
+
+def _get_technician():
+    """Return default technician login."""
+    return "יוסי"
+
+
+def _lookup_customer(phone):
+    """Look up customer by phone number in DynamoDB service calls history.
+
+    Returns name and customer_number only — device_number is intentionally
+    excluded because the customer may be calling about a different device.
+
+    Returns:
+        dict: {"name": "...", "customer_number": "..."} or empty dict
+    """
+    try:
+        db = _get_maint_db()
+        calls = db.get_service_calls(phone=phone, limit=5)
+        if calls:
+            latest = calls[0]
+            return {
+                "name": latest.get("cdes") or latest.get("name", ""),
+                "customer_number": latest.get("custname", ""),
+            }
+    except Exception as e:
+        logger.error(f"[M10010] Customer lookup failed for {phone}: {e}")
+    return {}
+
+
+def _enrich_from_device(session):
+    """When device_number is set but customer info is missing, look up in Priority."""
+    sernum = session.get("device_number", "")
+    if not sernum or session.get("customer_number"):
+        return
+    try:
+        eq = _get_equipment_reader()
+        device = eq.fetch_equipment_by_sernum(sernum)
+        if device:
+            session["customer_number"] = device["custname"]
+            session["customer_name"] = device["cdes"]
+            logger.info(f"[M10010] Enriched from device {sernum}: "
+                        f"customer={device['custname']} ({device['cdes']})")
+    except Exception as e:
+        logger.error(f"[M10010] Device enrichment failed for {sernum}: {e}")
+
+
+# ── Script Loading ────────────────────────────────────────────
+
+def _load_script(script_id=None):
+    """Load a bot script from DynamoDB (cached).
+
+    Tries to find the script by ID first. If not found, falls back to
+    scanning all scripts for a matching name (case-insensitive).
+
+    Returns:
+        dict: script data, or None if not found
+    """
+    sid = script_id or DEFAULT_SCRIPT_ID
+    try:
+        db = _get_scripts_db()
+        script = db.get_script(sid)
+        if script:
+            return script
+        # Fallback: search by name (useful when ROUTING_SCRIPT_ID is set to a display name)
+        logger.info(f"[M10010] Script '{sid}' not found by ID, searching by name...")
+        all_scripts = db.list_scripts()
+        sid_lower = sid.strip().lower()
+        for s in all_scripts:
+            if (s.get("name") or "").strip().lower() == sid_lower:
+                logger.info(f"[M10010] Found script by name '{sid}' → id={s['script_id']}")
+                return s
+    except Exception as e:
+        logger.error(f"[M10010] Failed to load script {sid}: {e}")
+    return None
+
+
+def _find_step(script, step_id):
+    """Find a step definition in the script by ID.
+
+    Returns:
+        dict: step config, or None
+    """
+    for step in script.get("steps", []):
+        if step.get("id") == step_id:
+            return step
+    return None
+
+
+# ── Generic Step Message Builder ──────────────────────────────
+
+def _build_step_message(step_id, script, session_data):
+    """Build the message and optional buttons for a step, reading from script config.
+
+    Returns:
+        dict: {"text": "...", "buttons": [...] or None}
+    """
+    step = _find_step(script, step_id)
+    if not step:
+        return {"text": "שגיאה פנימית", "buttons": None}
+
+    text = step.get("text", "")
+
+    # Interpolate session variables in step text (e.g. {device_number}, {customer_name})
+    try:
+        import collections as _col
+        text = text.format_map(_col.defaultdict(str, session_data))
+    except (ValueError, KeyError):
+        pass
+
+    # For the first displayed step, prepend greeting
+    if not session_data.get("_greeted"):
+        customer_name = session_data.get("customer_name", "")
+        if customer_name:
+            greeting = script.get("greeting_known", "שלום {customer_name}!").format(
+                customer_name=customer_name
+            )
+        else:
+            greeting = script.get("greeting_unknown", "שלום!")
+        text = f"{greeting}\n{text}"
+        session_data["_greeted"] = True
+
+    step_type = step.get("type", "text_input")
+
+    if step_type == "buttons":
+        buttons = [
+            {"id": btn["id"], "title": btn["title"]}
+            for btn in step.get("buttons", [])
+        ]
+        _append_log(session_data, "step_shown", step=step_id, step_type="buttons", text=text[:120])
+        return {"text": text, "buttons": buttons if buttons else None}
+
+    if step_type == "action":
+        # Action steps are auto-executed and should not be sent to the user
+        logger.warning(f"[M10010] _build_step_message called on action step {step_id} — "
+                       "should have been resolved by _resolve_skip_chain")
+        return {"text": "מתבצעת בדיקה...", "buttons": None}
+
+    # text_input type
+    _append_log(session_data, "step_shown", step=step_id, step_type="text_input", text=text[:120])
+    return {"text": text, "buttons": None}
+
+
+# ── Generic Step Input Processing ─────────────────────────────
+
+def _process_step_input(step_id, script, session_data, text, msg_type):
+    """Process user input for a step, reading logic from script config.
+
+    Returns:
+        str: next step ID to advance to, or None if input is invalid.
+    Updates session_data dict in-place with collected info.
+    """
+    step = _find_step(script, step_id)
+    if not step:
+        return None
+
+    step_type = step.get("type", "text_input")
+
+    if step_type == "buttons":
+        # Match text against button IDs
+        for btn in step.get("buttons", []):
+            if text == btn["id"]:
+                # Save value if button has save_to/save_value
+                if btn.get("save_to"):
+                    session_data[btn["save_to"]] = btn.get("save_value", btn["id"])
+                next_step = btn.get("next_step", "")
+                # Check skip_if condition
+                skip_if = btn.get("skip_if")
+                if skip_if and _check_skip_condition(skip_if, session_data):
+                    target = skip_if.get("goto", next_step)
+                    _append_log(session_data, "button_matched",
+                                step=step_id, button_id=btn["id"],
+                                button_title=btn.get("title", ""), next_step=target)
+                    return target
+                _append_log(session_data, "button_matched",
+                            step=step_id, button_id=btn["id"],
+                            button_title=btn.get("title", ""), next_step=next_step)
+                return next_step
+        return None  # No button matched
+
+    if step_type == "text_input":
+        # Accept free-text input
+        if msg_type in ("text", "interactive") and text and not text.startswith("["):
+            save_to = step.get("save_to")
+            if save_to:
+                session_data[save_to] = text
+            _append_log(session_data, "user_input",
+                        step=step_id, input=text[:80], msg_type=msg_type,
+                        save_to=save_to or "")
+            return step.get("next_step", "")
+        return None
+
+    if step_type == "action":
+        # Action steps are auto-executed, not driven by user input
+        return _execute_action_step(step, session_data)
+
+    return None
+
+
+def _check_skip_condition(skip_if, session_data):
+    """Evaluate a skip_if condition against session data.
+
+    Supports:
+        {"field": "device_number", "not_empty": true}
+        {"field": "device_number", "empty": true}
+        {"field": "is_system_down", "equals": "yes"}
+    """
+    field = skip_if.get("field", "")
+    value = session_data.get(field, "")
+    if skip_if.get("not_empty"):
+        return bool(value)
+    if skip_if.get("empty"):
+        return not bool(value)
+    if "equals" in skip_if:
+        return str(value) == str(skip_if["equals"])
+    return False
+
+
+def _execute_action_step(step, session_data):
+    """Execute an action step and return the next step ID based on result.
+
+    Currently supported action_types:
+        check_equipment — looks up device by field value in Priority.
+            on_success: step to go to if device found (also enriches customer info)
+            on_failure: step to go to if device not found or field is empty
+    """
+    action_type = step.get("action_type", "")
+
+    if action_type == "check_equipment":
+        field = step.get("field", "device_number")
+        value = session_data.get(field, "")
+        if not value:
+            logger.info(f"[M10010] Action check_equipment: field '{field}' is empty → failure")
+            return step.get("on_failure", "")
+        try:
+            eq = _get_equipment_reader()
+            device = eq.fetch_equipment_by_sernum(value)
+            if device:
+                session_data["customer_number"] = device.get("custname", "")
+                session_data["customer_name"] = device.get("cdes", "")
+                logger.info(f"[M10010] Action check_equipment: {value} found "
+                            f"→ customer={device.get('custname')} ({device.get('cdes')})")
+                return step.get("on_success", "")
+            else:
+                logger.info(f"[M10010] Action check_equipment: {value} not found → failure")
+                return step.get("on_failure", "")
+        except Exception as e:
+            logger.error(f"[M10010] Action check_equipment failed for {value}: {e}")
+            return step.get("on_failure", "")
+
+    if action_type == "check_open_service_call":
+        field = step.get("field", "device_number")
+        value = session_data.get(field, "")
+        if not value:
+            logger.info(f"[M10010] Action check_open_service_call: no device number → no open call")
+            return step.get("on_failure", "")
+        try:
+            writer = _get_service_call_writer()
+            open_calls = writer.find_open_service_calls(value)
+            if open_calls:
+                call = open_calls[0]
+                session_data["open_call_docno"] = call.get("DOCNO", "")
+                session_data["open_call_status"] = call.get("CALLSTATUSCODE", "")
+                logger.info(f"[M10010] Action check_open_service_call: {value} has open call "
+                            f"DOCNO={call.get('DOCNO')}")
+                return step.get("on_success", "")
+            else:
+                logger.info(f"[M10010] Action check_open_service_call: {value} no open calls")
+                return step.get("on_failure", "")
+        except Exception as e:
+            logger.error(f"[M10010] Action check_open_service_call failed for {value}: {e}")
+            return step.get("on_failure", "")
+
+    logger.warning(f"[M10010] Unknown action_type: {action_type}")
+    return None
+
+
+def _llm_route_exits(step, session_data):
+    """Use OpenAI to decide which exit to take from an instructions node with exits.
+
+    Sends the instructions text + current session fields to GPT and asks it
+    to choose one of the provided exits by returning its next_step target.
+
+    Returns:
+        str: next_step target of the chosen exit, or first exit's next_step as fallback.
+    """
+    exits = step.get("exits", [])
+    if not exits:
+        return ""
+
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+
+    # Build exit list for the prompt — use 1-based numbering to match natural Hebrew
+    # (scripts are written with "יציאה 1", "יציאה 2", etc.)
+    exit_lines = "\n".join([
+        f"- יציאה {i + 1}: \"{e.get('title', f'יציאה {i + 1}')}\""
+        for i, e in enumerate(exits)
+    ])
+
+    # Filter session to relevant fields (skip internal/large fields)
+    skip_keys = {"expires_at", "session_id", "created_at", "updated_at",
+                 "parsed_data", "llm_result", "original_message_id",
+                 "original_media_id", "bot_instructions", "bot_instructions_step"}
+    session_info = {k: v for k, v in session_data.items()
+                    if k not in skip_keys and isinstance(v, (str, int, float, bool)) and v}
+
+    # Always include original_text so format-detection instructions can read the raw message
+    original_text = session_data.get("original_text", "")
+
+    prompt = (
+        f"אתה מנתח נתוני שיחה ובוחר יציאה לפי הוראות. "
+        f"החזר אך ורק מספר היציאה (0, 1 או 2) ללא שום טקסט נוסף.\n\n"
+        f"הוראות:\n{step.get('text', '')}\n\n"
+        f"ההודעה המקורית שהתקבלה:\n{original_text}\n\n"
+        f"נתוני הסשן הנוכחי:\n{json.dumps(session_info, ensure_ascii=False)}\n\n"
+        f"אפשרויות יציאה:\n{exit_lines}\n\n"
+        f"בחר מספר יציאה (החזר רק את המספר, 1 עד {len(exits)}):"
+    )
+
+    try:
+        response = _requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 5,
+                "temperature": 0,
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+        answer = response.json()["choices"][0]["message"]["content"].strip()
+        idx = int(answer) - 1  # convert 1-based answer to 0-based index
+        if 0 <= idx < len(exits):
+            chosen = exits[idx]
+            logger.info(f"[M10010] LLM chose exit {idx} ('{chosen.get('title')}') → {chosen.get('next_step')}")
+            return chosen.get("next_step", "")
+    except Exception as e:
+        logger.error(f"[M10010] LLM route failed: {e}")
+
+    # Fallback: first exit
+    fallback = exits[0].get("next_step", "")
+    logger.warning(f"[M10010] LLM route fallback → first exit: {fallback}")
+    return fallback
+
+
+def _resolve_skip_chain(step_id, script, session_data, max_depth=10):
+    """Resolve automatic steps (skip_if and action) without waiting for user input.
+
+    When the engine reaches a step that has a skip_if condition and the condition is true,
+    or a step of type 'action', it executes/jumps automatically.
+    This chains until a step that requires user input (text_input or buttons).
+
+    Args:
+        step_id: Starting step ID
+        script: Full script dict
+        session_data: Current session data (fields to check against)
+        max_depth: Safety limit to prevent infinite loops
+
+    Returns:
+        str: Final step ID after resolving all auto steps
+    """
+    current = step_id
+    for _ in range(max_depth):
+        if _is_done_step(current, script):
+            break
+        step = _find_step(script, current)
+        if not step:
+            break
+
+        # Auto-execute instructions steps (LLM-route if exits, else simple advance)
+        if step.get("type") == "instructions":
+            instr_text = step.get("text", "")
+            session_data["bot_instructions_step"] = instr_text
+            exits = step.get("exits", [])
+            if exits:
+                # LLM decides which exit to take
+                target = _llm_route_exits(step, session_data)
+                if target and target != current:
+                    # Find chosen exit title for log
+                    chosen_title = next(
+                        (e.get("title", "") for e in exits if e.get("next_step") == target), ""
+                    )
+                    _append_log(session_data, "llm_route",
+                                step=current, chosen_exit_title=chosen_title, target=target)
+                    current = target
+                    continue
+            else:
+                logger.info(f"[M10010] Instructions step {current}: {instr_text[:100]}")
+                target = step.get("next_step", "")
+                if target and target != current:
+                    _append_log(session_data, "instructions_auto", step=current, target=target)
+                    current = target
+                    continue
+            break
+
+        # Auto-execute action steps (no user input needed)
+        if step.get("type") == "action":
+            action_type = step.get("action_type", "")
+            field = step.get("field", "")
+            value = session_data.get(field, "")
+            target = _execute_action_step(step, session_data)
+            if target and target != current:
+                result = "success" if target == step.get("on_success") else "failure"
+                # Store action result explicitly so subsequent INSTR/LLM steps can read it
+                if action_type == "check_equipment":
+                    session_data["equipment_check_result"] = "found" if result == "success" else "not_found"
+                if action_type == "check_open_service_call":
+                    session_data["open_service_call_result"] = "exists" if result == "success" else "none"
+                logger.info(f"[M10010] Action step: {current} → {target} "
+                            f"(action_type={action_type})")
+                _append_log(session_data, "action_executed",
+                            step=current, action_type=action_type,
+                            field=field, value=str(value)[:40],
+                            result=result, target=target)
+                current = target
+                continue
+            break
+
+        # Resolve step-level skip_if conditions
+        skip_if = step.get("skip_if")
+        if skip_if and _check_skip_condition(skip_if, session_data):
+            target = skip_if.get("goto", "")
+            if target and target != current:
+                logger.info(f"[M10010] Step skip: {current} → {target} "
+                            f"(field={skip_if.get('field')} matched)")
+                _append_log(session_data, "skip_if_triggered",
+                            step=current, field=skip_if.get("field", ""), target=target)
+                current = target
+                continue
+        break
+    return current
+
+
+def _is_done_step(step_id, script):
+    """Check if a step ID is a terminal (done) step."""
+    done_actions = script.get("done_actions", {})
+    return step_id in done_actions
+
+
+def _switch_to_script(phone, target_script_id, session, db):
+    """Switch the active session to a different script (without losing session data).
+
+    Used by the switch_script done_action to transition from a routing script
+    to a fault-reporting script in one seamless session.
+
+    Returns:
+        dict: first step message of the new script
+    """
+    new_script = _load_script(target_script_id)
+    if not new_script:
+        logger.error(f"[M10010] switch_script: target '{target_script_id}' not found")
+        return {"text": f"שגיאה: תסריט {target_script_id} לא נמצא", "buttons": None}
+
+    from_script = session.get("script_id", "")
+    first_step = new_script.get("first_step", "")
+    _append_log(session, "switch_script", from_script=from_script, to_script=target_script_id)
+
+    first_step = _resolve_skip_chain(first_step, new_script, session)
+
+    session["script_id"] = target_script_id
+    session["step"] = first_step
+    session["expires_at"] = int(time.time()) + SESSION_TTL_SECONDS
+    # Update bot_instructions from the new script
+    session["bot_instructions"] = new_script.get("bot_instructions", "")
+    db.update_session(phone, session)
+
+    logger.info(f"[M10010] Switched script: {target_script_id}, first_step={first_step}")
+
+    if _is_done_step(first_step, new_script):
+        return _handle_done(first_step, new_script, session)
+
+    return _build_step_message(first_step, new_script, session)
+
+
+# ── Done Actions ──────────────────────────────────────────────
+
+def _handle_done(done_id, script, session):
+    """Execute the done action and return the completion message.
+
+    Returns:
+        dict: {"text": "..."} completion message
+    """
+    done_actions = script.get("done_actions", {})
+    done_config = done_actions.get(done_id, {})
+
+    action = done_config.get("action", "")
+    call_id = ""
+    if action == "save_message":
+        _save_customer_message(session, script)
+    elif action == "save_service_call":
+        call_id = _save_completed_service_call(session, script) or ""
+    elif action == "escalate":
+        call_id = _save_completed_service_call(session, script) or ""
+        logger.info(f"[M10010] Escalation done: {done_id}")
+    elif action == "end_conversation":
+        logger.info(f"[M10010] End-conversation done: {done_id}, no record saved")
+    elif action == "update_existing_service_call":
+        call_id = _update_existing_service_call(session, script) or ""
+    elif action == "notify_only":
+        logger.info(f"[M10010] Notify-only done: {done_id}, no record saved")
+    elif action:
+        # Unknown/custom action — log it, save as generic message
+        logger.info(f"[M10010] Custom action '{action}' for done={done_id}, saving as message")
+        _save_customer_message(session, script)
+
+    # Log done event + extend TTL to 7 days so diagnostics can review completed sessions
+    _append_log(session, "session_done", done_id=done_id, action=action)
+    session["status"] = "done"
+    session["expires_at"] = int(time.time()) + 7 * 86400
+    try:
+        db = _get_session_db()
+        db.update_session(session.get("phone", ""), session)
+    except Exception as e:
+        logger.error(f"[M10010] Failed to persist done log for {session.get('phone')}: {e}")
+
+    result = {"text": done_config.get("text", "תודה!")}
+
+    # Send admin WhatsApp notification if configured on this done action
+    notify_phone = done_config.get("notify_phone", "")
+    if notify_phone and call_id:
+        import collections as _col
+        notify_tmpl = done_config.get("notify_text",
+            "נפתחה קריאת שירות חדשה מהבוט הקולי 📞\nמספר קריאה: {call_id}\nטלפון: {phone}")
+        try:
+            # Flatten parsed_data fields so Hebrew keys from voice-bot are available in template
+            flat_ctx = {}
+            raw_pd = session.get("parsed_data", {})
+            if isinstance(raw_pd, str):
+                try:
+                    raw_pd = json.loads(raw_pd)
+                except Exception:
+                    raw_pd = {}
+            if isinstance(raw_pd, dict):
+                flat_ctx.update(raw_pd)
+            flat_ctx.update(session)
+            notify_msg = notify_tmpl.format_map(
+                _col.defaultdict(str, call_id=call_id, **flat_ctx)
+            )
+            result["notify_whatsapp"] = {"phone": notify_phone, "text": notify_msg}
+            logger.info(f"[M10010] Admin notification queued → {notify_phone}")
+        except Exception as e:
+            logger.error(f"[M10010] Failed to build admin notification: {e}")
+
+    return result
+
+
+# ── Public API ────────────────────────────────────────────────
+
+def reset_session(phone):
+    """Delete the active session for a phone number (force restart)."""
+    db = _get_session_db()
+    db.delete_session(phone)
+    logger.info(f"[M10010] Session reset for {phone}")
+
+
+def get_active_session(phone):
+    """Check if phone has an active (non-expired) troubleshooting session.
+
+    Returns:
+        dict session data, or None.
+    """
+    db = _get_session_db()
+    session = db.get_session(phone)
+    if not session:
+        return None
+
+    # Session marked as done or cancelled — not active
+    if session.get("status") in ("done", "cancelled"):
+        return None
+
+    step = session.get("step")
+    # Check if step is a done step
+    script = _load_script(session.get("script_id"))
+    if script and _is_done_step(step, script):
+        return None
+    if step is None:
+        return None
+
+    if session.get("expires_at", 0) > time.time():
+        return session
+    return None
+
+
+def start_session(phone, name, parsed_data=None, message_id="", media_id="",
+                  original_text="", llm_result=None, script_id=None,
+                  device_number="", customer_number="", customer_name=""):
+    """Start a new troubleshooting session.
+
+    Args:
+        device_number: Device serial number from Priority (via M1000 equipment lookup)
+        customer_number: Customer code from Priority
+        customer_name: Customer name from Priority
+
+    Returns:
+        dict: {"text": "...", "buttons": [...]} for the greeting question.
+    """
+    sid = script_id or DEFAULT_SCRIPT_ID
+    script = _load_script(sid)
+    if not script:
+        logger.error(f"[M10010] Script {sid} not found")
+        return {"text": "שגיאה: תסריט לא נמצא", "buttons": None}
+
+    db = _get_session_db()
+    now = datetime.utcnow().isoformat() + "Z"
+
+    # Use only Priority data from M1000 — no DynamoDB history fallback
+    # Fallback chain: Priority lookup → parsed_data["שם הלקוח"] → WhatsApp profile name
+    if not customer_name and parsed_data:
+        raw_pd = parsed_data if isinstance(parsed_data, dict) else {}
+        if isinstance(parsed_data, str):
+            try:
+                raw_pd = json.loads(parsed_data)
+            except Exception:
+                raw_pd = {}
+        customer_name = raw_pd.get("שם הלקוח", "")
+    customer_name = customer_name or name
+
+    first_step = script.get("first_step", "GREETING")
+
+    bot_instructions = script.get("bot_instructions", "")
+    if bot_instructions:
+        logger.info(f"[M10010] Bot instructions loaded for script '{sid}': {bot_instructions[:100]}...")
+
+    session_data = {
+        "phone": phone,
+        "session_id": str(uuid.uuid4()),
+        "script_id": sid,
+        "name": name,
+        "step": first_step,
+        "created_at": now,
+        "updated_at": now,
+        "expires_at": int(time.time()) + SESSION_TTL_SECONDS,
+        "customer_name": customer_name,
+        "customer_number": customer_number,
+        # Use device number from QR/parsed message, but not from phone lookup
+        "device_number": (parsed_data or {}).get("מספר מכשיר", "").strip(),
+        "original_text": original_text,
+        "original_message_id": message_id,
+        "original_media_id": media_id,
+        "parsed_data": parsed_data or {},
+        "llm_result": llm_result or {},
+        "bot_instructions": bot_instructions,
+    }
+
+    # Pre-initialize all save_to fields defined in the script (text steps and buttons)
+    for step in script.get("steps", []):
+        if step.get("save_to") and step["save_to"] not in session_data:
+            session_data[step["save_to"]] = ""
+        for btn in step.get("buttons", []):
+            if btn.get("save_to") and btn["save_to"] not in session_data:
+                session_data[btn["save_to"]] = ""
+
+    # Log session start
+    _append_log(session_data, "session_start",
+                script_id=sid, first_step=first_step,
+                customer_name=customer_name, device_number=device_number)
+
+    # Resolve step-level skip_if on first step
+    first_step = _resolve_skip_chain(first_step, script, session_data)
+    session_data["step"] = first_step
+
+    db.save_session(session_data)
+    logger.info(f"[M10010] Session started for {phone}, script={sid}, "
+                f"customer={customer_name}, device={device_number}")
+
+    # Check if skip chain landed on a done step
+    if _is_done_step(first_step, script):
+        return _handle_done(first_step, script, session_data)
+
+    return _build_step_message(first_step, script, session_data)
+
+
+def process_message(phone, text, msg_type="text", caption=""):
+    """Process an incoming message for an active troubleshooting session.
+
+    Returns:
+        dict: {"text": "...", "buttons": [...]} or {"text": "..."} or None
+    """
+    db = _get_session_db()
+    session = db.get_session(phone)
+
+    if not session:
+        return None
+
+    script = _load_script(session.get("script_id"))
+    if not script:
+        return {"text": "שגיאה: תסריט לא נמצא", "buttons": None}
+
+    current_step = session.get("step", "")
+    logger.info(f"[M10010] Processing {phone} step={current_step} input={text[:50]}")
+
+    # User pressed -1 → end conversation immediately
+    if text.strip() == "-1":
+        logger.info(f"[M10010] User {phone} pressed -1 → ending session")
+        session["status"] = "cancelled"
+        _append_log(session, "session_cancelled", step=current_step)
+        db.update_session_step(phone, "CANCELLED")
+        session["expires_at"] = int(time.time()) + 7 * 86400
+        db.save_session(session)
+        return {"text": "השיחה הסתיימה. תודה!"}
+
+    next_step = _process_step_input(current_step, script, session, text, msg_type)
+
+    # If device_number was just entered, enrich customer info from Priority
+    if session.get("device_number") and not session.get("customer_number"):
+        _enrich_from_device(session)
+
+    if next_step is None:
+        # Invalid input - re-send current step prompt with a nudge
+        msg = _build_step_message(current_step, script, session)
+        if msg.get("buttons"):
+            msg["text"] = "אנא בחר אחת מהאפשרויות:\n\n" + msg["text"]
+        return msg
+
+    if _is_done_step(next_step, script):
+        done_cfg = script.get("done_actions", {}).get(next_step, {})
+        if done_cfg.get("action") == "switch_script":
+            logger.info(f"[M10010] switch_script: {phone} → {done_cfg.get('target_script_id')}")
+            return _switch_to_script(phone, done_cfg.get("target_script_id", ""), session, db)
+        result = _handle_done(next_step, script, session)
+        db.update_session_step(phone, next_step)
+        logger.info(f"[M10010] Done: {phone} → {next_step}")
+        return result
+
+    # Resolve step-level skip_if chain
+    next_step = _resolve_skip_chain(next_step, script, session)
+
+    # Check if skip chain landed on a done step
+    if _is_done_step(next_step, script):
+        done_cfg = script.get("done_actions", {}).get(next_step, {})
+        if done_cfg.get("action") == "switch_script":
+            logger.info(f"[M10010] switch_script (after skip): {phone} → {done_cfg.get('target_script_id')}")
+            return _switch_to_script(phone, done_cfg.get("target_script_id", ""), session, db)
+        result = _handle_done(next_step, script, session)
+        db.update_session_step(phone, next_step)
+        logger.info(f"[M10010] Done (after skip): {phone} → {next_step}")
+        return result
+
+    # Advance to next step
+    session["step"] = next_step
+    session["updated_at"] = datetime.utcnow().isoformat() + "Z"
+    session["expires_at"] = int(time.time()) + SESSION_TTL_SECONDS
+    db.update_session(phone, session)
+
+    return _build_step_message(next_step, script, session)
+
+
+# ── Done Action Implementations ───────────────────────────────
+
+def _save_customer_message(session, script=None):
+    """Save a non-fault customer message to DynamoDB as a service call record."""
+    maint_db = _get_maint_db()
+    phone = session.get("phone", "")
+    name = session.get("customer_name", "") or session.get("name", "")
+
+    # Find message field: prefer "customer_message", fallback to first text save_to in script
+    message = session.get("customer_message", "")
+    if not message and script:
+        for step in script.get("steps", []):
+            save_to = step.get("save_to", "")
+            if save_to and session.get(save_to):
+                message = session[save_to]
+                break
+
+    call_data = dict(
+        phone=phone,
+        name=name,
+        issue_type="הודעה",
+        description=message,
+        urgency="low",
+        location="",
+        summary=message,
+        message_id=session.get("original_message_id", ""),
+        custname=session.get("customer_number", "") or "99999",
+        cdes=name,
+        technicianlogin=_get_technician(),
+        callstatuscode="הודעות מלקוח",
+    )
+    result = maint_db.save_service_call(**call_data)
+    call_id = result.get("id", "")
+
+    # Auto-push to Priority
+    try:
+        writer = _get_service_call_writer()
+        call_data["fault_text"] = f"הודעה מלקוח:\n{message}\nטלפון: {phone}\nשם: {name}"
+        priority_result = writer.create_service_call(call_data)
+        priority_callno = str(priority_result.get("DOCNO", ""))
+        maint_db.mark_service_call_pushed(call_id, callno=priority_callno)
+        logger.info(f"[M10010] Message auto-pushed to Priority: DOCNO={priority_callno}")
+    except Exception as e:
+        logger.error(f"[M10010] Message auto-push to Priority failed: {e}")
+
+
+def _save_completed_service_call(session, script=None):
+    """Save completed fault report as a service call in DynamoDB.
+
+    Dynamically collects all save_to fields from the script steps.
+    Known fields (description, location, device_number, is_system_down) are mapped
+    to specific service call attributes; all other fields are appended as extra text.
+
+    Returns:
+        str: service call ID
+    """
+    maint_db = _get_maint_db()
+
+    phone = session.get("phone", "")
+    name = session.get("customer_name", "") or session.get("name", "")
+
+    # Collect all save_to fields from the script
+    SYSTEM_FIELDS = {
+        "phone", "session_id", "script_id", "name", "step",
+        "created_at", "updated_at", "expires_at",
+        "customer_name", "customer_number", "device_number",
+        "original_text", "original_message_id", "original_media_id",
+        "parsed_data", "llm_result",
+    }
+    script_fields = []  # ordered list of (field, value) as defined in script steps
+    seen = set()
+    if script:
+        for step in script.get("steps", []):
+            save_to = step.get("save_to", "")
+            if save_to and save_to not in SYSTEM_FIELDS and save_to not in seen:
+                seen.add(save_to)
+                if session.get(save_to):
+                    script_fields.append((save_to, session[save_to]))
+            for btn in step.get("buttons", []):
+                bsave = btn.get("save_to", "")
+                if bsave and bsave not in SYSTEM_FIELDS and bsave not in seen:
+                    seen.add(bsave)
+                    if session.get(bsave):
+                        script_fields.append((bsave, session[bsave]))
+
+    # Known field aliases that map to specific service call attributes
+    description = session.get("description", "")
+    # Fallback: use first collected script field as description if none named "description"
+    if not description and script_fields:
+        description = script_fields[0][1]
+    # Final fallback: use original_text (e.g. voice-bot messages that skip straight to DONE)
+    if not description:
+        description = session.get("original_text", "")
+    location = session.get("location", "")
+    is_system_down = session.get("is_system_down", "") == "yes"
+    # Fallback for voice-bot: check parsed_data["מערכת מושבתת"]
+    if not is_system_down:
+        raw_pd = session.get("parsed_data", {})
+        if isinstance(raw_pd, str):
+            try:
+                raw_pd = json.loads(raw_pd)
+            except Exception:
+                raw_pd = {}
+        pd_val = str(raw_pd.get("מערכת מושבתת", "")).strip() if isinstance(raw_pd, dict) else ""
+        if pd_val and pd_val not in ("לא", "לא פעיל", "לא מושבת", "no", "false"):
+            is_system_down = True
+
+    # Build fault text
+    fault_lines = []
+    if description:
+        fault_lines.append(description)
+    fault_lines.append(f"טלפון: {phone}")
+    if location:
+        fault_lines.append(f"מיקום: {location}")
+    if session.get("device_number"):
+        fault_lines.append(f"מכשיר: {session['device_number']}")
+    if is_system_down:
+        fault_lines.append("מערכת מושבתת: כן")
+
+    # Append any extra script fields not already included
+    KNOWN_MAPPED = {"description", "location", "is_system_down"}
+    for field, value in script_fields:
+        if field not in KNOWN_MAPPED:
+            fault_lines.append(f"{field}: {value}")
+
+    fault_text = "\n".join(fault_lines)
+
+    call_data = dict(
+        phone=phone,
+        name=name,
+        issue_type="תקלה",
+        description=description,
+        urgency="high" if is_system_down else "medium",
+        location=session.get("location", ""),
+        summary=description,
+        message_id=session.get("original_message_id", ""),
+        media_id=session.get("original_media_id", ""),
+        custname=session.get("customer_number", "") or "99999",
+        cdes=name,
+        sernum=session.get("device_number", ""),
+        branchname="001",
+        technicianlogin=_get_technician(),
+        fault_text=fault_text,
+        is_system_down=is_system_down,
+    )
+
+    result = maint_db.save_service_call(**call_data)
+    call_id = result.get("id", "")
+    priority_callno = ""
+
+    # Auto-push to Priority
+    try:
+        writer = _get_service_call_writer()
+        priority_result = writer.create_service_call(call_data)
+        priority_callno = str(priority_result.get("DOCNO", ""))
+        maint_db.mark_service_call_pushed(call_id, callno=priority_callno)
+        logger.info(f"[M10010] Auto-pushed to Priority: DOCNO={priority_callno}")
+    except Exception as e:
+        logger.error(f"[M10010] Auto-push to Priority failed: {e}")
+
+    # Return Priority DOCNO when available, else internal DB id
+    return priority_callno or call_id
+
+
+def _update_existing_service_call(session, script=None):
+    """Append fault description and customer info to an existing open service call.
+
+    Called when check_open_service_call found an existing call (DOCNO stored
+    in session['open_call_docno']).  Attaches a text note via EXTFILES_SUBFORM
+    and also saves the update to DynamoDB.
+
+    Returns:
+        str: the existing DOCNO
+    """
+    docno = session.get("open_call_docno", "")
+    if not docno:
+        logger.warning("[M10010] update_existing_service_call: no open_call_docno in session")
+        return ""
+
+    phone = session.get("phone", "")
+    name = session.get("customer_name", "") or session.get("name", "")
+    description = session.get("description", "")
+
+    # Build the note text
+    lines = []
+    if description:
+        lines.append(f"תיאור תקלה: {description}")
+    lines.append(f"טלפון: {phone}")
+    if name:
+        lines.append(f"לקוח: {name}")
+    if session.get("device_number"):
+        lines.append(f"מכשיר: {session['device_number']}")
+    if session.get("is_system_down") == "yes":
+        lines.append("מערכת מושבתת: כן")
+    lines.append(f"תאריך עדכון: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    note_text = "\n".join(lines)
+
+    # Attach note to existing Priority service call
+    try:
+        writer = _get_service_call_writer()
+        writer.append_note_to_service_call(docno, note_text)
+        logger.info(f"[M10010] Note appended to existing call {docno}")
+    except Exception as e:
+        logger.error(f"[M10010] Failed to append note to {docno}: {e}")
+
+    # Also save to DynamoDB as an update record
+    try:
+        maint_db = _get_maint_db()
+        maint_db.save_service_call(
+            phone=phone,
+            name=name,
+            issue_type="עדכון לקריאה קיימת",
+            description=f"עדכון לקריאה {docno}: {description}",
+            urgency="medium",
+            summary=f"עדכון לקריאה {docno}",
+            custname=session.get("customer_number", "") or "99999",
+            cdes=name,
+            sernum=session.get("device_number", ""),
+            branchname="001",
+            technicianlogin=_get_technician(),
+            fault_text=note_text,
+        )
+    except Exception as e:
+        logger.error(f"[M10010] Failed to save update to DynamoDB: {e}")
+
+    return docno
+
+
+# ── Seed Default Script ───────────────────────────────────────
+
+def seed_default_script():
+    """Write the default maintenance-troubleshoot script to DynamoDB if it doesn't exist."""
+    db = _get_scripts_db()
+    existing = db.get_script(DEFAULT_SCRIPT_ID, use_cache=False)
+    if existing:
+        logger.info(f"[M10010] Default script already exists, skipping seed")
+        return existing
+
+    script = {
+        "script_id": DEFAULT_SCRIPT_ID,
+        "name": "תסריט אבחון תקלות",
+        "active": True,
+        "greeting_known": "שלום {customer_name}! כאן הבוט החכם של חברת האחזקה.",
+        "greeting_unknown": "שלום! כאן הבוט החכם של חברת האחזקה.",
+        "first_step": "GREETING",
+        "steps": [
+            {
+                "id": "GREETING",
+                "type": "buttons",
+                "text": "מה תרצה לעשות?",
+                "buttons": [
+                    {
+                        "id": "intent_fault",
+                        "title": "לדווח על תקלה",
+                        "next_step": "ASK_DEVICE",
+                        "skip_if": {
+                            "field": "device_number",
+                            "not_empty": True,
+                            "goto": "ASK_SYSTEM_DOWN",
+                        },
+                    },
+                    {
+                        "id": "intent_message",
+                        "title": "להשאיר הודעה",
+                        "next_step": "GET_MESSAGE",
+                    },
+                ],
+            },
+            {
+                "id": "GET_MESSAGE",
+                "type": "text_input",
+                "text": "שלח את ההודעה שלך:",
+                "save_to": "customer_message",
+                "next_step": "DONE_MESSAGE",
+            },
+            {
+                "id": "ASK_DEVICE",
+                "type": "buttons",
+                "text": "האם יש לך את מספר המכשיר/המתקן?",
+                "buttons": [
+                    {"id": "device_yes", "title": "כן, יש לי", "next_step": "DEVICE_INPUT"},
+                    {"id": "device_no", "title": "לא", "next_step": "ASK_ADDRESS"},
+                ],
+            },
+            {
+                "id": "DEVICE_INPUT",
+                "type": "text_input",
+                "text": "שלח את מספר המכשיר/המתקן:",
+                "save_to": "device_number",
+                "next_step": "ASK_SYSTEM_DOWN",
+            },
+            {
+                "id": "ASK_ADDRESS",
+                "type": "text_input",
+                "text": "באיזה כתובת נמצא המתקן?\n(נשתמש בכתובת כדי לאתר את המכשיר)",
+                "save_to": "location",
+                "next_step": "ASK_SYSTEM_DOWN",
+            },
+            {
+                "id": "ASK_SYSTEM_DOWN",
+                "type": "buttons",
+                "text": "האם המערכת מושבתת?",
+                "buttons": [
+                    {
+                        "id": "system_down_yes",
+                        "title": "כן, מושבתת",
+                        "next_step": "DESCRIBE_FAULT",
+                        "save_to": "is_system_down",
+                        "save_value": "yes",
+                    },
+                    {
+                        "id": "system_down_no",
+                        "title": "לא, פעילה",
+                        "next_step": "DESCRIBE_FAULT",
+                        "save_to": "is_system_down",
+                        "save_value": "no",
+                    },
+                ],
+            },
+            {
+                "id": "DESCRIBE_FAULT",
+                "type": "text_input",
+                "text": "תאר בקצרה את התקלה:",
+                "save_to": "description",
+                "next_step": "DONE_FAULT",
+            },
+        ],
+        "done_actions": {
+            "DONE_MESSAGE": {
+                "text": "ההודעה התקבלה, תודה! נחזור אליך בהקדם.",
+                "action": "save_message",
+            },
+            "DONE_FAULT": {
+                "text": "נפתחה קריאת שירות! ניצור איתך קשר בהקדם. תודה!",
+                "action": "save_service_call",
+            },
+        },
+    }
+
+    db.save_script(script)
+    logger.info(f"[M10010] Default script seeded: {DEFAULT_SCRIPT_ID}")
+    return script

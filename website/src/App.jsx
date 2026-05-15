@@ -1,0 +1,90 @@
+import { Routes, Route } from 'react-router-dom'
+import { EnvProvider } from './contexts/EnvContext'
+import Header from './components/Header'
+import Footer from './components/Footer'
+import HomePage from './pages/HomePage'
+import AppPage from './pages/AppPage'
+import InvoicesPage from './pages/InvoicesPage'
+import EnergyPage from './pages/EnergyPage'
+import EnergySystemPage from './pages/EnergySystemPage'
+import ReportsPage from './pages/ReportsPage'
+import ProfitLossReportPage from './pages/ProfitLossReportPage'
+import AppsPage from './pages/AppsPage'
+import SupplierInvoicesPage from './pages/SupplierInvoicesPage'
+import InvoicePrinterPage from './pages/InvoicePrinterPage'
+import MaintenancePage from './pages/MaintenancePage'
+import MessagesPage from './pages/MessagesPage'
+import ServiceCallsPage from './pages/ServiceCallsPage'
+import ArielPage from './pages/ArielPage'
+import AgingReportPage from './pages/AgingReportPage'
+import ArielDebtReportPage from './pages/ArielDebtReportPage'
+import ArielUnchargedDeliveryPage from './pages/ArielUnchargedDeliveryPage'
+import ArielInvoicesPage from './pages/ArielInvoicesPage'
+import ArielHRPage from './pages/ArielHRPage'
+import ArielInvoiceManagerPage from './pages/ArielInvoiceManagerPage'
+import ArielDeliveryManagerPage from './pages/ArielDeliveryManagerPage'
+import PdfToolsPage from './pages/PdfToolsPage'
+import SupplierInvoiceEntryPage from './pages/SupplierInvoiceEntryPage'
+import BotScriptsPage from './pages/BotScriptsPage'
+import BotTrainingPage from './pages/BotTrainingPage'
+import BotFlowEditorPage from './pages/BotFlowEditor/BotFlowEditorPage'
+import BotDiagnosticsPage from './pages/BotDiagnosticsPage'
+import PdfSignPage from './pages/PdfSignPage'
+import PdfConvertPage from './pages/PdfConvertPage'
+import QrGeneratorPage from './pages/QrGeneratorPage'
+import ParkingPage from './pages/ParkingPage'
+import ParkingProjectsPage from './pages/ParkingProjectsPage'
+import DesignSandboxPage from './pages/DesignSandboxPage' // TEMP design sandbox — delete later
+import PlaceholderPage from './pages/PlaceholderPage'
+
+export default function App() {
+  return (
+    <EnvProvider>
+      <Header />
+      <main>
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/maintenance" element={<MaintenancePage />} />
+          <Route path="/maintenance/messages" element={<MessagesPage />} />
+          <Route path="/maintenance/service-calls" element={<ServiceCallsPage />} />
+          <Route path="/maintenance/bot-scripts" element={<BotScriptsPage />} />
+          <Route path="/maintenance/bot-training" element={<BotTrainingPage />} />
+          <Route path="/maintenance/bot-flow" element={<BotFlowEditorPage />} />
+          <Route path="/maintenance/bot-diagnostics" element={<BotDiagnosticsPage />} />
+          <Route path="/maintenance/qr-generator" element={<QrGeneratorPage />} />
+          <Route path="/ariel" element={<ArielPage />} />
+          <Route path="/ariel/aging-report" element={<AgingReportPage />} />
+          <Route path="/ariel/debt-report" element={<ArielDebtReportPage />} />
+          <Route path="/ariel/uncharged-delivery" element={<ArielUnchargedDeliveryPage />} />
+          <Route path="/ariel/invoices" element={<ArielInvoicesPage />} />
+          <Route path="/ariel/hr" element={<ArielHRPage />} />
+          <Route path="/ariel/invoice-manager" element={<ArielInvoiceManagerPage />} />
+          <Route path="/ariel/delivery-manager" element={<ArielDeliveryManagerPage />} />
+          <Route path="/parking" element={<ParkingPage />} />
+          <Route path="/parking/projects" element={<ParkingProjectsPage />} />
+          <Route path="/energy" element={<EnergyPage />} />
+          <Route path="/energy/invoices" element={<InvoicesPage />} />
+          <Route path="/energy/system" element={<EnergySystemPage />} />
+          <Route path="/reports" element={<ReportsPage />} />
+          <Route path="/reports/profit-loss" element={<ProfitLossReportPage />} />
+          <Route path="/apps" element={<AppsPage />} />
+          <Route path="/apps/supplier-invoices" element={<SupplierInvoicesPage />} />
+          <Route path="/apps/supplier-invoice-entry" element={<SupplierInvoiceEntryPage />} />
+          <Route path="/apps/invoice-printer" element={<InvoicePrinterPage />} />
+          <Route path="/apps/pdf-tools" element={<PdfToolsPage />} />
+          <Route path="/apps/pdf-sign" element={<PdfSignPage />} />
+          <Route path="/apps/pdf-convert" element={<PdfConvertPage />} />
+          <Route path="/orders" element={<PlaceholderPage title="מערכת ניהול הזמנות" desc="ניהול ומעקב הזמנות לקוחות — בבנייה." />} />
+          <Route path="/clients" element={<PlaceholderPage title="ניהול לקוחות" desc="מאגר הלקוחות, תיקים ופרטי התקשרות — בבנייה." />} />
+          <Route path="/management-reports" element={<PlaceholderPage title="דוחות ניהוליים" desc="רווח והפסד, תזרים וניתוח ביצועים — בבנייה." />} />
+          <Route path="/cashflow" element={<PlaceholderPage title="תזרים" desc="תזרים מזומנים, תחזיות ומעקב — בבנייה." />} />
+          <Route path="/collections" element={<PlaceholderPage title="ניהול גביה" desc="מעקב חובות, גיול והתראות גביה — בבנייה." />} />
+          <Route path="/design" element={<DesignSandboxPage />} /> {/* TEMP design sandbox — delete later */}
+          <Route path="/app/:appId" element={<AppPage />} />
+          <Route path="*" element={<HomePage />} />
+        </Routes>
+      </main>
+      <Footer />
+    </EnvProvider>
+  )
+}

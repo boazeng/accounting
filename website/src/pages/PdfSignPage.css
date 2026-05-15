@@ -1,0 +1,525 @@
+/* ── PDF Sign Page ──────────────────────────────────────────── */
+
+.ps-page {
+  direction: rtl;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #F7FAFC;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Top bar */
+.ps-topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 20px;
+  background: #fff;
+  border-bottom: 1px solid #E2E8F0;
+  flex-shrink: 0;
+}
+
+.ps-back {
+  color: #4A5568;
+  text-decoration: none;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.ps-back:hover { color: #2B6CB0; }
+
+.ps-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1A202C;
+  margin: 0;
+  flex: 1;
+}
+
+.ps-topbar-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.ps-save-btn {
+  padding: 8px 20px;
+  background: #2B6CB0;
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.ps-save-btn:hover:not(:disabled) { background: #2C5282; }
+.ps-save-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* Status bar */
+.ps-status {
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.ps-status-ok  { background: #F0FFF4; color: #276749; border-bottom: 1px solid #9AE6B4; }
+.ps-status-err { background: #FFF5F5; color: #C53030; border-bottom: 1px solid #FEB2B2; }
+
+/* Body: three panels (RTL: tools | viewer | thumbs) */
+.ps-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Tools panel (right side in RTL) ────────────────────────── */
+.ps-left {
+  width: 190px;
+  flex-shrink: 0;
+  background: #fff;
+  border-left: 1px solid #E2E8F0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+/* ── Thumbnails panel (left side in RTL) ────────────────────── */
+.ps-thumbs-panel {
+  width: 120px;
+  flex-shrink: 0;
+  background: #fff;
+  border-right: 1px solid #E2E8F0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ps-upload-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 14px 10px;
+  border-bottom: 1px solid #EDF2F7;
+  cursor: pointer;
+  font-size: 12px;
+  color: #4A5568;
+  text-align: center;
+  transition: background 0.12s;
+  min-height: 70px;
+}
+.ps-upload-zone:hover { background: #EBF8FF; }
+
+.ps-upload-icon { font-size: 24px; }
+
+.ps-upload-name {
+  font-size: 11px;
+  color: #2B6CB0;
+  font-weight: 600;
+  word-break: break-all;
+  max-width: 190px;
+}
+
+/* Paste zone — compact single row */
+.ps-paste-zone {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-bottom: 1px solid #EDF2F7;
+  background: #FFFBEB;
+  font-size: 11px;
+  color: #4A5568;
+  transition: background 0.2s;
+}
+.ps-paste-active { background: #FEF9C3 !important; }
+
+.ps-paste-icon { font-size: 16px; flex-shrink: 0; }
+
+.ps-paste-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ps-paste-text strong { color: #92400E; font-size: 11px; }
+.ps-paste-text span   { font-size: 10px; color: #78716C; }
+
+.ps-file-fallback {
+  padding: 7px 10px;
+  font-size: 11px;
+  color: #718096;
+  text-align: center;
+  cursor: pointer;
+  border-bottom: 1px solid #EDF2F7;
+  transition: background 0.12s;
+}
+
+/* Signature history gallery */
+.ps-sig-history {
+  padding: 8px 10px;
+  border-bottom: 1px solid #EDF2F7;
+  background: #F8FAFC;
+}
+
+.ps-sig-history-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 600;
+  color: #4A5568;
+  margin-bottom: 7px;
+}
+
+.ps-sig-history-clear {
+  background: #FFF5F5;
+  border: 1px solid #FEB2B2;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #C53030;
+  cursor: pointer;
+  padding: 2px 7px;
+  line-height: 1.4;
+  transition: background 0.12s;
+}
+.ps-sig-history-clear:hover { background: #FED7D7; }
+
+.ps-sig-history-row {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.ps-sig-hist-item {
+  position: relative;
+  width: 62px;
+  height: 48px;
+  border: 2px solid #CBD5E0;
+  border-radius: 6px;
+  cursor: pointer;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  transition: border-color 0.12s, box-shadow 0.12s;
+  flex-shrink: 0;
+}
+.ps-sig-hist-item:hover  { border-color: #63B3ED; box-shadow: 0 2px 6px rgba(66,153,225,0.2); }
+.ps-sig-hist-active      { border-color: #3182CE !important; background: #EBF8FF; box-shadow: 0 2px 6px rgba(49,130,206,0.3) !important; }
+
+.ps-sig-hist-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.ps-sig-hist-check {
+  position: absolute;
+  bottom: 2px;
+  left: 3px;
+  font-size: 11px;
+  color: #2B6CB0;
+  font-weight: 800;
+  line-height: 1;
+  text-shadow: 0 0 3px #fff;
+}
+.ps-file-fallback:hover { background: #F7FAFC; color: #2B6CB0; }
+
+.ps-sig-preview {
+  max-width: 190px;
+  max-height: 55px;
+  object-fit: contain;
+}
+
+.ps-sig-controls {
+  padding: 10px;
+  border-bottom: 1px solid #EDF2F7;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ps-btn-place {
+  width: 100%;
+  padding: 7px;
+  background: #E6FFFA;
+  border: 1px solid #81E6D9;
+  border-radius: 6px;
+  color: #234E52;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.ps-btn-place:hover { background: #B2F5EA; }
+
+.ps-btn-remove {
+  width: 100%;
+  padding: 7px;
+  background: #FFF5F5;
+  border: 1px solid #FEB2B2;
+  border-radius: 6px;
+  color: #C53030;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.ps-btn-remove:hover { background: #FED7D7; }
+
+.ps-placement-count {
+  text-align: center;
+  font-size: 11px;
+  color: #718096;
+}
+
+/* Thumbnails */
+.ps-loading {
+  padding: 20px;
+  text-align: center;
+  color: #A0AEC0;
+  font-size: 13px;
+}
+
+.ps-thumbs {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ps-thumb {
+  position: relative;
+  border: 2px solid #E2E8F0;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.12s;
+  flex-shrink: 0;
+}
+.ps-thumb:hover { border-color: #90CDF4; }
+.ps-thumb-selected { border-color: #4299E1 !important; }
+
+.ps-thumb img {
+  width: 100%;
+  display: block;
+}
+
+.ps-thumb-num {
+  position: absolute;
+  bottom: 3px;
+  right: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(0,0,0,0.5);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.ps-thumb-badge {
+  position: absolute;
+  top: 3px;
+  left: 5px;
+  font-size: 14px;
+}
+
+/* ── Right panel: page viewer ───────────────────────────────── */
+.ps-right {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 20px;
+}
+
+.ps-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #A0AEC0;
+  text-align: center;
+  gap: 12px;
+}
+.ps-empty-icon { font-size: 56px; }
+.ps-empty p    { font-size: 15px; margin: 0; }
+.ps-empty-hint { font-size: 13px !important; color: #CBD5E0 !important; margin-top: 4px !important; }
+
+/* Page viewer container */
+.ps-viewer {
+  position: relative;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.15);
+  border-radius: 4px;
+  overflow: hidden;
+  flex-shrink: 0;
+  cursor: default;
+}
+
+.ps-page-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Signature overlay */
+.ps-sig-overlay {
+  position: absolute;
+  cursor: grab;
+  border: 2px dashed #CBD5E0;
+  box-sizing: border-box;
+  border-radius: 3px;
+  transition: border-color 0.1s;
+}
+.ps-sig-overlay:hover  { border-color: #90CDF4; }
+.ps-sig-selected       { border: 2px solid #4299E1 !important; }
+.ps-sig-dragging       { cursor: grabbing; border-color: #E53E3E !important; }
+
+.ps-sig-overlay img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  pointer-events: none;
+}
+
+/* Transform row: scale + rotate buttons */
+.ps-transform-row {
+  display: flex;
+  gap: 4px;
+}
+
+.ps-btn-transform {
+  flex: 1;
+  padding: 6px 2px;
+  background: #EDF2F7;
+  border: 1px solid #CBD5E0;
+  border-radius: 6px;
+  color: #2D3748;
+  font-size: 17px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s;
+  text-align: center;
+  line-height: 1;
+}
+.ps-btn-transform:hover { background: #E2E8F0; }
+
+/* Rotation slider */
+.ps-rotation-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.ps-rotation-slider {
+  flex: 1;
+  height: 4px;
+  accent-color: #4299E1;
+  cursor: pointer;
+}
+
+.ps-rotation-val {
+  font-size: 11px;
+  color: #4A5568;
+  min-width: 28px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Page numbering controls ──────────────────────────────── */
+.ps-numbering-section {
+  padding: 10px;
+  border-top: 1px solid #E2E8F0;
+  margin-top: auto;
+}
+
+.ps-numbering-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #2D3748;
+  cursor: pointer;
+}
+
+.ps-numbering-toggle input[type="checkbox"] {
+  accent-color: #4299E1;
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
+.ps-numbering-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.ps-num-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ps-num-row label {
+  font-size: 10px;
+  color: #718096;
+  font-weight: 500;
+}
+
+.ps-num-row input[type="number"],
+.ps-num-row input[type="text"],
+.ps-num-row select {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid #CBD5E0;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #2D3748;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.ps-num-row input:focus,
+.ps-num-row select:focus {
+  outline: none;
+  border-color: #4299E1;
+  box-shadow: 0 0 0 2px rgba(66, 153, 225, 0.2);
+}
+
+.ps-num-preview {
+  text-align: center;
+  padding: 5px;
+  background: #F7FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #2D3748;
+  font-family: Helvetica, Arial, sans-serif;
+  margin-top: 2px;
+  direction: ltr;
+}
+
+/* Resize handle — bottom-left corner (RTL) */
+.ps-resize {
+  position: absolute;
+  bottom: -1px;
+  left: -1px;
+  width: 14px;
+  height: 14px;
+  background: #4299E1;
+  border-radius: 2px;
+  cursor: sw-resize;
+}
