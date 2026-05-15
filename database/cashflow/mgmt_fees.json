@@ -1,0 +1,38 @@
+[
+  {
+    "id": "3dcd17ae-0fe0-4b46-9fb6-f1ac2b7738eb",
+    "company": "חניה אורבנית",
+    "employee": "סורין ארדץ",
+    "fee_before": 20000.0,
+    "fee_incl": 23600.0,
+    "move_date": "9",
+    "notes": "דמי ניהול - סורין ארדץ"
+  },
+  {
+    "id": "c5ff4a28-5f54-4afe-a86a-c63253f56691",
+    "company": "אחזקה אורבנית",
+    "employee": "בועז אנגלנדר",
+    "fee_before": 20000.0,
+    "fee_incl": 23600.0,
+    "move_date": "9",
+    "notes": "דמי ניהול - בועז אנגלנדר"
+  },
+  {
+    "id": "b71eee54-369f-4705-aa2a-bee9872981e0",
+    "company": "אנרגיה אורבנית",
+    "employee": "יוסי אנגלנדר",
+    "fee_before": 20000.0,
+    "fee_incl": 23600.0,
+    "move_date": "9",
+    "notes": "דמי ניהול - יוסי אנגלנדר"
+  },
+  {
+    "id": "ff948dc5-c32a-449d-a98b-0280c7114f8c",
+    "company": "חניה אורבנית",
+    "employee": "גיל אדמתי",
+    "fee_before": 20000.0,
+    "fee_incl": 23600.0,
+    "move_date": "9",
+    "notes": "דמי ניהול - גיל אדמתי"
+  }
+]

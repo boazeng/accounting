@@ -1,0 +1,73 @@
+.et-wrap {
+  overflow-x: auto;
+}
+.et-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: right;
+}
+.et-table thead th {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--color-text-light);
+  background: var(--color-bg);
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+.et-table tbody td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+.et-table tbody tr:last-child td { border-bottom: none; }
+
+.et-input {
+  width: 100%;
+  min-width: 64px;
+  font: inherit;
+  font-size: 0.88rem;
+  color: var(--color-text);
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.et-input:hover { border-color: var(--color-border); }
+.et-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  background: var(--color-bg-white);
+  box-shadow: 0 0 0 3px var(--color-primary-soft);
+}
+.et-num { text-align: left; font-family: var(--font-family-en); }
+/* narrower money columns, wider details/notes column */
+.et-w-sm { min-width: 76px; max-width: 104px; }
+.et-w-md { min-width: 124px; max-width: 168px; }
+.et-w-lg { min-width: 260px; }
+.et-money-pos { color: var(--color-pos); font-weight: 600; }
+.et-money-neg { color: var(--color-accent); font-weight: 600; }
+.et-select { cursor: pointer; min-width: 110px; }
+
+.et-actions-h { text-align: center; width: 1%; white-space: nowrap; }
+.et-actions {
+  text-align: center;
+  white-space: nowrap;
+}
+.et-act {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-white);
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1;
+  margin: 0 2px;
+  transition: all 0.15s ease;
+}
+.et-add { color: var(--color-pos); }
+.et-add:hover { background: var(--color-pos-soft); border-color: var(--color-pos); }
+.et-del { color: var(--color-accent); }
+.et-del:hover { background: rgba(214, 74, 46, 0.12); border-color: var(--color-accent); }

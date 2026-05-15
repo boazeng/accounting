@@ -204,6 +204,18 @@ knowledge_db = importlib.util.module_from_spec(spec_kn_db)
 sys.modules["knowledge_db"] = knowledge_db
 spec_kn_db.loader.exec_module(knowledge_db)
 
+# Load cash-flow (תזרים) database module
+cf_db_path = PROJECT_ROOT / "database" / "cashflow" / "cashflow_db.py"
+spec_cf_db = importlib.util.spec_from_file_location("cashflow_db", cf_db_path)
+cashflow_db = importlib.util.module_from_spec(spec_cf_db)
+sys.modules["cashflow_db"] = cashflow_db
+spec_cf_db.loader.exec_module(cashflow_db)
+try:
+    cashflow_db.seed_defaults()
+    cashflow_db.seed_extras()
+except Exception as _cf_e:  # noqa: BLE001
+    logger.warning(f"cashflow seed skipped: {_cf_e}")
+
 # Load RAG retrieval module
 rag_path = PROJECT_ROOT / "agents" / "LLM" / "maintenance" / "rag_retrieval.py"
 spec_rag = importlib.util.spec_from_file_location("rag_retrieval", rag_path)
@@ -3863,6 +3875,137 @@ def send_delivery_note_to_priority(note_id):
     except Exception as e:
         logger.error(f"Send delivery note failed: {e}")
         delivery_notes_db.mark_error(note_id, str(e))
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ===== Cash-flow (תזרים) =====
+@app.route("/api/cashflow", methods=["GET"])
+def get_cashflow():
+    try:
+        company = request.args.get("company", "all")
+        rows = cashflow_db.list_transactions(company)
+        total_in = sum(r["amount"] for r in rows if r.get("kind") == "income")
+        total_out = sum(r["amount"] for r in rows if r.get("kind") == "expense")
+        return jsonify({
+            "ok": True,
+            "transactions": rows,
+            "summary": {
+                "income": total_in,
+                "expense": total_out,
+                "net": total_in - total_out,
+                "count": len(rows),
+            },
+        })
+    except Exception as e:
+        logger.error(f"cashflow list failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/cashflow/employees", methods=["GET"])
+def get_cf_employees():
+    try:
+        return jsonify({"ok": True, "employees": cashflow_db.list_employees()})
+    except Exception as e:
+        logger.error(f"cf employees failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/cashflow/vehicles", methods=["GET"])
+def get_cf_vehicles():
+    try:
+        return jsonify({"ok": True, "vehicles": cashflow_db.list_vehicles()})
+    except Exception as e:
+        logger.error(f"cf vehicles failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/cashflow/loans", methods=["GET"])
+def get_cf_loans():
+    try:
+        return jsonify({"ok": True, "loans": cashflow_db.list_loans()})
+    except Exception as e:
+        logger.error(f"cf loans failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/cashflow/mgmt", methods=["GET"])
+def get_cf_mgmt():
+    try:
+        return jsonify({"ok": True, "mgmt": cashflow_db.list_mgmt()})
+    except Exception as e:
+        logger.error(f"cf mgmt failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/cashflow", methods=["PUT"])
+def save_cashflow():
+    try:
+        b = request.get_json(force=True) or {}
+        n = cashflow_db.save_transactions(b.get("transactions", []))
+        return jsonify({"ok": True, "saved": n})
+    except Exception as e:
+        logger.error(f"cashflow save failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/cashflow/employees", methods=["PUT"])
+def save_cf_employees():
+    try:
+        b = request.get_json(force=True) or {}
+        n = cashflow_db.save_employees(b.get("rows", []))
+        return jsonify({"ok": True, "saved": n})
+    except Exception as e:
+        logger.error(f"cf employees save failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/cashflow/vehicles", methods=["PUT"])
+def save_cf_vehicles():
+    try:
+        b = request.get_json(force=True) or {}
+        n = cashflow_db.save_vehicles(b.get("rows", []))
+        return jsonify({"ok": True, "saved": n})
+    except Exception as e:
+        logger.error(f"cf vehicles save failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/cashflow/loans", methods=["PUT"])
+def save_cf_loans():
+    try:
+        b = request.get_json(force=True) or {}
+        n = cashflow_db.save_loans(b.get("rows", []))
+        return jsonify({"ok": True, "saved": n})
+    except Exception as e:
+        logger.error(f"cf loans save failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/cashflow/mgmt", methods=["PUT"])
+def save_cf_mgmt():
+    try:
+        b = request.get_json(force=True) or {}
+        n = cashflow_db.save_mgmt(b.get("rows", []))
+        return jsonify({"ok": True, "saved": n})
+    except Exception as e:
+        logger.error(f"cf mgmt save failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/cashflow", methods=["POST"])
+def add_cashflow():
+    try:
+        b = request.get_json(force=True) or {}
+        for f in ("company", "kind", "category", "pay_date", "amount"):
+            if b.get(f) in (None, ""):
+                return jsonify({"ok": False, "error": f"חסר שדה: {f}"}), 400
+        row = cashflow_db.add_transaction(
+            b["company"], b["kind"], b["category"],
+            b["pay_date"], b.get("details", ""), b["amount"],
+        )
+        return jsonify({"ok": True, "transaction": row})
+    except Exception as e:
+        logger.error(f"cashflow add failed: {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 

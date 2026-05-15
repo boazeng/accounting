@@ -1,0 +1,82 @@
+[
+  {
+    "id": "f1771254-29e3-44f8-9703-94129c9982f2",
+    "company": "חניה אורבנית",
+    "kind": "income",
+    "category": "לקוחות",
+    "pay_date": "2026-06-05",
+    "details": "תקבול דמי חניה חודשי",
+    "amount": 48500.0,
+    "created_at": "2026-05-15T20:49:09.148039Z"
+  },
+  {
+    "id": "793fc888-ddd5-4faa-8b3a-7bcb3135226c",
+    "company": "אחזקה אורבנית",
+    "kind": "income",
+    "category": "לקוחות",
+    "pay_date": "2026-06-08",
+    "details": "חוזה אחזקה רבעוני",
+    "amount": 64000.0,
+    "created_at": "2026-05-15T20:49:09.173098Z"
+  },
+  {
+    "id": "b8556a1d-2c5d-4c13-8316-d847f85e6eb0",
+    "company": "חניה אורבנית",
+    "kind": "expense",
+    "category": "ספקים",
+    "pay_date": "2026-06-10",
+    "details": "תשלום אחזקת מתקנים",
+    "amount": 12300.0,
+    "created_at": "2026-05-15T20:49:09.160734Z"
+  },
+  {
+    "id": "661c2a2c-910e-4fc1-84b9-95f9ca2df8f1",
+    "company": "אנרגיה אורבנית",
+    "kind": "income",
+    "category": "לקוחות",
+    "pay_date": "2026-06-15",
+    "details": "חשבוניות אנרגיה",
+    "amount": 152000.0,
+    "created_at": "2026-05-15T20:49:09.202286Z"
+  },
+  {
+    "id": "e265ec89-b0be-4331-8064-56d4e426d015",
+    "company": "אנרגיה אורבנית",
+    "kind": "expense",
+    "category": "ספקים",
+    "pay_date": "2026-06-20",
+    "details": "רכש ציוד",
+    "amount": 27450.0,
+    "created_at": "2026-05-15T20:49:09.215303Z"
+  },
+  {
+    "id": "a6a2227c-726b-48d2-a363-772775dfe548",
+    "company": "אחזקה אורבנית",
+    "kind": "expense",
+    "category": "שכר",
+    "pay_date": "2026-06-28",
+    "details": "שכר עובדי שטח",
+    "amount": 38900.0,
+    "created_at": "2026-05-15T20:49:09.187551Z"
+  },
+  {
+    "id": "7c97eb55-97b1-41bf-8db0-c177fbdb8ca7",
+    "company": "חניה אורבנית",
+    "kind": "income",
+    "category": "לקוחות",
+    "pay_date": "2026-07-05",
+    "details": "תקבול דמי חניה חודשי",
+    "amount": 49100.0,
+    "created_at": "2026-05-15T20:49:09.243966Z"
+  },
+  {
+    "id": "d0228deb-a752-4e6e-ab17-f6e6d17f6c7c",
+    "company": "אנרגיה אורבנית",
+    "kind": "expense",
+    "category": "מסים",
+    "pay_date": "2026-07-15",
+    "details": "מקדמות מס",
+    "amount": 19000.0,
+    "created_at": "2026-05-15T20:49:09.231175Z"
+  }
+]

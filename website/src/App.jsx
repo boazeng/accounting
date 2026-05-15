@@ -36,6 +36,7 @@ import ParkingPage from './pages/ParkingPage'
 import ParkingProjectsPage from './pages/ParkingProjectsPage'
 import DesignSandboxPage from './pages/DesignSandboxPage' // TEMP design sandbox — delete later
 import PlaceholderPage from './pages/PlaceholderPage'
+import CashflowPage from './pages/CashflowPage'
 
 export default function App() {
   return (
@@ -77,7 +78,7 @@ export default function App() {
           <Route path="/orders" element={<PlaceholderPage title="מערכת ניהול הזמנות" desc="ניהול ומעקב הזמנות לקוחות — בבנייה." />} />
           <Route path="/clients" element={<PlaceholderPage title="ניהול לקוחות" desc="מאגר הלקוחות, תיקים ופרטי התקשרות — בבנייה." />} />
           <Route path="/management-reports" element={<PlaceholderPage title="דוחות ניהוליים" desc="רווח והפסד, תזרים וניתוח ביצועים — בבנייה." />} />
-          <Route path="/cashflow" element={<PlaceholderPage title="תזרים" desc="תזרים מזומנים, תחזיות ומעקב — בבנייה." />} />
+          <Route path="/cashflow" element={<CashflowPage />} />
           <Route path="/collections" element={<PlaceholderPage title="ניהול גביה" desc="מעקב חובות, גיול והתראות גביה — בבנייה." />} />
           <Route path="/design" element={<DesignSandboxPage />} /> {/* TEMP design sandbox — delete later */}
           <Route path="/app/:appId" element={<AppPage />} />

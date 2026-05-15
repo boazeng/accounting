@@ -1,0 +1,38 @@
+[
+  {
+    "id": "84e7a8da-d6fa-4059-9468-ab50e07e889e",
+    "bank": "בנק הפועלים",
+    "company": "חניה אורבנית",
+    "end_date": "12.29",
+    "loan_type": "הלוואת פיתוח",
+    "monthly": 9800.0,
+    "move_date": "10",
+    "notes": "מימון הקמת מתקן",
+    "start_date": "12.25",
+    "total": 2300000.0
+  },
+  {
+    "id": "7b3541be-ae92-47dd-beb1-ca5e61ec8caf",
+    "bank": "בנק לאומי",
+    "company": "אנרגיה אורבנית",
+    "end_date": "05.30",
+    "loan_type": "הלוואת ציוד",
+    "monthly": 21500.0,
+    "move_date": "1",
+    "notes": "רכש מערכות",
+    "start_date": "06.24",
+    "total": 1200000.0
+  },
+  {
+    "id": "96359d8c-b9d4-4f78-97da-a8b19ccc8a59",
+    "company": "אחזקה אורבנית",
+    "loan_type": "רכב חן",
+    "bank": "חן",
+    "total": 70000.0,
+    "monthly": 2000.0,
+    "start_date": "12.25",
+    "end_date": "12.60",
+    "move_date": "5",
+    "notes": "הלוואה רכב חן אנגלנדר"
+  }
+]
