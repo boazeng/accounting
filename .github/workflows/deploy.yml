@@ -1,8 +1,11 @@
-name: Deploy to AWS
+name: Deploy to AWS (DISABLED — legacy urbangroup pipeline)
 
+# Auto-deploy on push is DISABLED. This workflow is inherited from
+# urbangroup and still targets urbangroup infra (urbangroup-stack /
+# urbangroup-* buckets). It must be rewritten for the tact-accounting
+# stack before it is used again. Manual-only until then.
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   id-token: write
