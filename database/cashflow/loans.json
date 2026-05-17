@@ -9,7 +9,12 @@
     "move_date": "10",
     "notes": "מימון הקמת מתקן",
     "start_date": "12.25",
-    "total": 2300000.0
+    "total": 2300000.0,
+    "code": "0016",
+    "active": true,
+    "flow_from": "12.25",
+    "flow_to": "12.29",
+    "last_pushed": ""
   },
   {
     "id": "7b3541be-ae92-47dd-beb1-ca5e61ec8caf",
@@ -21,7 +26,12 @@
     "move_date": "1",
     "notes": "רכש מערכות",
     "start_date": "06.24",
-    "total": 1200000.0
+    "total": 1200000.0,
+    "code": "0017",
+    "active": true,
+    "flow_from": "06.24",
+    "flow_to": "05.30",
+    "last_pushed": ""
   },
   {
     "id": "96359d8c-b9d4-4f78-97da-a8b19ccc8a59",
@@ -33,6 +43,11 @@
     "start_date": "12.25",
     "end_date": "12.60",
     "move_date": "5",
-    "notes": "הלוואה רכב חן אנגלנדר"
+    "notes": "הלוואה רכב חן אנגלנדר",
+    "code": "0018",
+    "active": true,
+    "flow_from": "12.25",
+    "flow_to": "12.60",
+    "last_pushed": ""
   }
 ]

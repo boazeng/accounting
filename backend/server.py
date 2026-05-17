@@ -3937,12 +3937,21 @@ def get_cf_mgmt():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/cashflow/misc", methods=["GET"])
+def get_cf_misc():
+    try:
+        return jsonify({"ok": True, "misc": cashflow_db.list_misc()})
+    except Exception as e:
+        logger.error(f"cf misc failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.route("/api/cashflow", methods=["PUT"])
 def save_cashflow():
     try:
         b = request.get_json(force=True) or {}
-        n = cashflow_db.save_transactions(b.get("transactions", []))
-        return jsonify({"ok": True, "saved": n})
+        rows = cashflow_db.save_transactions(b.get("transactions", []))
+        return jsonify({"ok": True, "saved": len(rows), "rows": rows})
     except Exception as e:
         logger.error(f"cashflow save failed: {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -3952,8 +3961,8 @@ def save_cashflow():
 def save_cf_employees():
     try:
         b = request.get_json(force=True) or {}
-        n = cashflow_db.save_employees(b.get("rows", []))
-        return jsonify({"ok": True, "saved": n})
+        rows = cashflow_db.save_employees(b.get("rows", []))
+        return jsonify({"ok": True, "saved": len(rows), "rows": rows})
     except Exception as e:
         logger.error(f"cf employees save failed: {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -3963,8 +3972,8 @@ def save_cf_employees():
 def save_cf_vehicles():
     try:
         b = request.get_json(force=True) or {}
-        n = cashflow_db.save_vehicles(b.get("rows", []))
-        return jsonify({"ok": True, "saved": n})
+        rows = cashflow_db.save_vehicles(b.get("rows", []))
+        return jsonify({"ok": True, "saved": len(rows), "rows": rows})
     except Exception as e:
         logger.error(f"cf vehicles save failed: {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -3974,8 +3983,8 @@ def save_cf_vehicles():
 def save_cf_loans():
     try:
         b = request.get_json(force=True) or {}
-        n = cashflow_db.save_loans(b.get("rows", []))
-        return jsonify({"ok": True, "saved": n})
+        rows = cashflow_db.save_loans(b.get("rows", []))
+        return jsonify({"ok": True, "saved": len(rows), "rows": rows})
     except Exception as e:
         logger.error(f"cf loans save failed: {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -3985,10 +3994,43 @@ def save_cf_loans():
 def save_cf_mgmt():
     try:
         b = request.get_json(force=True) or {}
-        n = cashflow_db.save_mgmt(b.get("rows", []))
-        return jsonify({"ok": True, "saved": n})
+        rows = cashflow_db.save_mgmt(b.get("rows", []))
+        return jsonify({"ok": True, "saved": len(rows), "rows": rows})
     except Exception as e:
         logger.error(f"cf mgmt save failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/cashflow/misc", methods=["PUT"])
+def save_cf_misc():
+    try:
+        b = request.get_json(force=True) or {}
+        rows = cashflow_db.save_misc(b.get("rows", []))
+        return jsonify({"ok": True, "saved": len(rows), "rows": rows})
+    except Exception as e:
+        logger.error(f"cf misc save failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/cashflow/flow", methods=["POST"])
+def cf_flow():
+    try:
+        b = request.get_json(force=True) or {}
+        res = cashflow_db.flow_to_cashflow(b.get("source", ""), b.get("code", ""))
+        return jsonify(res), (200 if res.get("ok") else 400)
+    except Exception as e:
+        logger.error(f"cf flow failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/cashflow/flow/delete", methods=["POST"])
+def cf_flow_delete():
+    try:
+        b = request.get_json(force=True) or {}
+        res = cashflow_db.delete_cashflow_by_code(b.get("code", ""))
+        return jsonify(res)
+    except Exception as e:
+        logger.error(f"cf flow delete failed: {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 

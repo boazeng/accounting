@@ -1,0 +1,34 @@
+[
+  {
+    "id": "898a9eb9-d928-430a-8277-0bfae3114069",
+    "amount": 3500.0,
+    "category": "אחזקת מתקנים",
+    "code": "0023",
+    "company": "חניה אורבנית",
+    "from_month": "06.26",
+    "kind": "expense",
+    "move_date": "15",
+    "notes": "תחזוקה שוטפת",
+    "to_month": "12.26",
+    "active": true,
+    "flow_from": "06.26",
+    "flow_to": "12.26",
+    "last_pushed": ""
+  },
+  {
+    "id": "cbe62bbb-371b-40b7-b965-521d25cfdc92",
+    "amount": 45000.0,
+    "category": "מענק",
+    "code": "0024",
+    "company": "אנרגיה אורבנית",
+    "from_month": "07.26",
+    "kind": "income",
+    "move_date": "1",
+    "notes": "מענק התייעלות אנרגטית",
+    "to_month": "07.26",
+    "active": true,
+    "flow_from": "07.26",
+    "flow_to": "07.26",
+    "last_pushed": ""
+  }
+]

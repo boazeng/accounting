@@ -24,9 +24,19 @@ const CF_COLS = [
   },
   { key: 'category', label: 'סיווג התנועה' },
   { key: 'pay_date', label: 'תאריך תשלום' },
+  { key: 'code', label: 'קוד', type: 'readonly', w: 'sm' },
   { key: 'details', label: 'פרטים' },
   { key: 'amount', label: 'סכום בש"ח', type: 'money' },
 ]
+
+// uniform flow controls appended to every related table
+const FLOW_COLS = [
+  { key: 'active', label: 'פעיל', type: 'checkbox' },
+  { key: 'flow_from', label: 'תאריך התחלה', type: 'mmyy' },
+  { key: 'flow_to', label: 'תאריך סיום', type: 'mmyy' },
+  { key: 'last_pushed', label: 'עודכן עד חודש', type: 'readonly', w: 'sm' },
+]
+const FLOW_BLANK = { active: true, flow_from: '', flow_to: '', last_pushed: '' }
 
 const PANELS = {
   employees: {
@@ -40,18 +50,11 @@ const PANELS = {
       { key: 'net', label: 'שכר נטו', type: 'money' },
       { key: 'social', label: 'סכום סוציאליות', type: 'money' },
       { key: 'extra', label: 'הוצאה נוספת', type: 'money' },
+      { key: 'code', label: 'קוד', type: 'readonly', w: 'sm' },
       { key: 'notes', label: 'פרטים' },
-      {
-        key: 'active',
-        label: 'פעיל',
-        type: 'select',
-        options: [
-          { v: true, l: 'כן' },
-          { v: false, l: 'לא' },
-        ],
-      },
+      ...FLOW_COLS,
     ],
-    blank: { company: '', name: '', gross: 0, net: 0, social: 0, extra: 0, notes: '', active: true },
+    blank: { company: '', name: '', gross: 0, net: 0, social: 0, extra: 0, code: '', notes: '', ...FLOW_BLANK },
   },
   vehicles: {
     label: 'רכבים',
@@ -65,9 +68,11 @@ const PANELS = {
       { key: 'plate', label: 'מספר הרכב' },
       { key: 'leasing', label: 'סכום ליסינג', type: 'money' },
       { key: 'fuel', label: 'דלק (הערכה)', type: 'money' },
+      { key: 'code', label: 'קוד', type: 'readonly', w: 'sm' },
       { key: 'notes', label: 'פרטים' },
+      ...FLOW_COLS,
     ],
-    blank: { company: '', employee: '', belongs_to: '', vtype: '', plate: '', leasing: 0, fuel: 0, notes: '' },
+    blank: { company: '', employee: '', belongs_to: '', vtype: '', plate: '', leasing: 0, fuel: 0, code: '', notes: '', ...FLOW_BLANK },
   },
   loans: {
     label: 'הלוואות',
@@ -82,7 +87,9 @@ const PANELS = {
       { key: 'start_date', label: 'התחלה', type: 'mmyy' },
       { key: 'end_date', label: 'סיום', type: 'mmyy' },
       { key: 'move_date', label: 'תאריך תנועה' },
+      { key: 'code', label: 'קוד', type: 'readonly', w: 'sm' },
       { key: 'notes', label: 'פרטים' },
+      ...FLOW_COLS,
     ],
     blank: {
       company: '',
@@ -93,7 +100,8 @@ const PANELS = {
       start_date: '',
       end_date: '',
       move_date: '',
-      notes: '',
+      code: '', notes: '',
+      ...FLOW_BLANK,
     },
   },
   mgmt: {
@@ -106,9 +114,47 @@ const PANELS = {
       { key: 'fee_before', label: 'דמי ניהול לפני מע"מ', type: 'money' },
       { key: 'fee_incl', label: 'דמי ניהול כולל מע"מ', type: 'money' },
       { key: 'move_date', label: 'תאריך תנועה' },
+      { key: 'code', label: 'קוד', type: 'readonly', w: 'sm' },
       { key: 'notes', label: 'פרטים' },
+      ...FLOW_COLS,
     ],
-    blank: { company: '', employee: '', fee_before: 0, fee_incl: 0, move_date: '', notes: '' },
+    blank: { company: '', employee: '', fee_before: 0, fee_incl: 0, move_date: '', code: '', notes: '', ...FLOW_BLANK },
+  },
+  misc: {
+    label: 'שונות',
+    url: 'misc',
+    listKey: 'misc',
+    cols: [
+      { key: 'company', label: 'שם חברה' },
+      {
+        key: 'kind',
+        label: 'סיווג',
+        type: 'select',
+        options: [
+          { v: 'income', l: 'הכנסה' },
+          { v: 'expense', l: 'הוצאה' },
+        ],
+      },
+      { key: 'category', label: 'סיווג תנועה' },
+      { key: 'code', label: 'קוד', type: 'readonly', w: 'sm' },
+      { key: 'notes', label: 'פרטים' },
+      { key: 'move_date', label: 'תאריך תנועה' },
+      { key: 'from_month', label: 'החל מחודש', type: 'mmyy' },
+      { key: 'to_month', label: 'עד לחודש', type: 'mmyy' },
+      { key: 'amount', label: 'סכום התנועה', type: 'money', w: 'md' },
+      ...FLOW_COLS,
+    ],
+    blank: {
+      company: '',
+      kind: 'expense',
+      category: '',
+      code: '', notes: '',
+      move_date: '',
+      from_month: '',
+      to_month: '',
+      amount: 0,
+      ...FLOW_BLANK,
+    },
   },
 }
 
@@ -117,9 +163,19 @@ const ils = (n) =>
 const uid = () =>
   (crypto.randomUUID && crypto.randomUUID()) || 'id-' + Math.random().toString(36).slice(2)
 
-/* debounced PUT saver */
-function useAutosave(url, bodyKey) {
+/* fill in server-assigned codes by id, without touching other fields */
+const mergeCodes = (local, server) => {
+  const m = new Map((server || []).map((s) => [s.id, s.code]))
+  return local.map((r) =>
+    r.code || !m.get(r.id) ? r : { ...r, code: m.get(r.id) }
+  )
+}
+
+/* debounced PUT saver; applies server-returned rows (codes) back */
+function useAutosave(url, bodyKey, onSaved) {
   const t = useRef(null)
+  const cb = useRef(onSaved)
+  cb.current = onSaved
   return (rows) => {
     clearTimeout(t.current)
     t.current = setTimeout(() => {
@@ -127,7 +183,12 @@ function useAutosave(url, bodyKey) {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ [bodyKey]: rows }),
-      }).catch(() => {})
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d && d.ok && d.rows && cb.current) cb.current(d.rows)
+        })
+        .catch(() => {})
     }, 700)
   }
 }
@@ -145,14 +206,25 @@ export default function CashflowPage() {
   const [ext, setExt] = useState({}) // { employees:[], vehicles:[], loans:[] }
   const loaded = useRef(false)
 
-  const saveCf = useAutosave('/api/cashflow', 'transactions')
-  const saveEmp = useAutosave('/api/cashflow/employees', 'rows')
-  const saveVeh = useAutosave('/api/cashflow/vehicles', 'rows')
-  const saveLoan = useAutosave('/api/cashflow/loans', 'rows')
-  const saveMgmt = useAutosave('/api/cashflow/mgmt', 'rows')
-  const panelSaver = { employees: saveEmp, vehicles: saveVeh, loans: saveLoan, mgmt: saveMgmt }
+  const mergeExt = (kkey) => (sr) =>
+    setExt((p) => ({ ...p, [kkey]: mergeCodes(p[kkey] || [], sr) }))
+  const saveCf = useAutosave('/api/cashflow', 'transactions', (sr) =>
+    setRows((prev) => mergeCodes(prev, sr))
+  )
+  const saveEmp = useAutosave('/api/cashflow/employees', 'rows', mergeExt('employees'))
+  const saveVeh = useAutosave('/api/cashflow/vehicles', 'rows', mergeExt('vehicles'))
+  const saveLoan = useAutosave('/api/cashflow/loans', 'rows', mergeExt('loans'))
+  const saveMgmt = useAutosave('/api/cashflow/mgmt', 'rows', mergeExt('mgmt'))
+  const saveMisc = useAutosave('/api/cashflow/misc', 'rows', mergeExt('misc'))
+  const panelSaver = {
+    employees: saveEmp,
+    vehicles: saveVeh,
+    loans: saveLoan,
+    mgmt: saveMgmt,
+    misc: saveMisc,
+  }
 
-  useEffect(() => {
+  const refreshCashflow = () =>
     fetch(`${API_BASE}/api/cashflow?company=all`)
       .then((r) => r.json())
       .then((d) => {
@@ -163,7 +235,53 @@ export default function CashflowPage() {
       })
       .catch(() => setError('שגיאת תקשורת עם השרת'))
       .finally(() => setLoading(false))
+
+  useEffect(() => {
+    refreshCashflow()
   }, [])
+
+  const reloadPanel = (key) =>
+    fetch(`${API_BASE}/api/cashflow/${PANELS[key].url}`)
+      .then((r) => r.json())
+      .then((d) => d.ok && setExt((p) => ({ ...p, [key]: d[PANELS[key].listKey] })))
+      .catch(() => {})
+
+  // per-row: push this row's movements into the cashflow table
+  const doFlow = (key, row) => {
+    if (!row.code) return
+    fetch(`${API_BASE}/api/cashflow/flow`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: PANELS[key].url, code: row.code }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!d.ok) {
+          alert(d.error || 'ההעברה נכשלה')
+          return
+        }
+        reloadPanel(key)
+        refreshCashflow()
+      })
+      .catch(() => alert('שגיאת תקשורת'))
+  }
+
+  // per-row: delete every cashflow movement carrying this row's code
+  const doDeleteCode = (key, row) => {
+    if (!row.code) return
+    if (!window.confirm(`למחוק את כל תנועות התזרים של קוד ${row.code}?`)) return
+    fetch(`${API_BASE}/api/cashflow/flow/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: row.code }),
+    })
+      .then((r) => r.json())
+      .then(() => {
+        reloadPanel(key)
+        refreshCashflow()
+      })
+      .catch(() => alert('שגיאת תקשורת'))
+  }
 
   // lazy-load a panel dataset on first open
   useEffect(() => {
@@ -335,6 +453,22 @@ export default function CashflowPage() {
                     onChange={pChange}
                     onAddBelow={pAdd}
                     onDelete={pDel}
+                    rowActions={[
+                      {
+                        key: 'flow',
+                        label: '⇄',
+                        title: 'העבר לטבלת תזרים',
+                        cls: 'et-flow',
+                        onClick: (row) => doFlow(panel, row),
+                      },
+                      {
+                        key: 'codedel',
+                        label: '⌫',
+                        title: 'מחק את כל תנועות התזרים של הקוד',
+                        cls: 'et-codedel',
+                        onClick: (row) => doDeleteCode(panel, row),
+                      },
+                    ]}
                   />
                   <button className="cf-add-row" onClick={pNew}>
                     + הוסף שורה

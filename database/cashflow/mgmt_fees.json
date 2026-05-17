@@ -6,7 +6,12 @@
     "fee_before": 20000.0,
     "fee_incl": 23600.0,
     "move_date": "9",
-    "notes": "דמי ניהול - סורין ארדץ"
+    "notes": "דמי ניהול - סורין ארדץ",
+    "code": "0019",
+    "active": true,
+    "flow_from": "",
+    "flow_to": "",
+    "last_pushed": ""
   },
   {
     "id": "c5ff4a28-5f54-4afe-a86a-c63253f56691",
@@ -15,7 +20,12 @@
     "fee_before": 20000.0,
     "fee_incl": 23600.0,
     "move_date": "9",
-    "notes": "דמי ניהול - בועז אנגלנדר"
+    "notes": "דמי ניהול - בועז אנגלנדר",
+    "code": "0020",
+    "active": true,
+    "flow_from": "",
+    "flow_to": "",
+    "last_pushed": ""
   },
   {
     "id": "b71eee54-369f-4705-aa2a-bee9872981e0",
@@ -24,7 +34,12 @@
     "fee_before": 20000.0,
     "fee_incl": 23600.0,
     "move_date": "9",
-    "notes": "דמי ניהול - יוסי אנגלנדר"
+    "notes": "דמי ניהול - יוסי אנגלנדר",
+    "code": "0021",
+    "active": true,
+    "flow_from": "",
+    "flow_to": "",
+    "last_pushed": ""
   },
   {
     "id": "ff948dc5-c32a-449d-a98b-0280c7114f8c",
@@ -33,6 +48,11 @@
     "fee_before": 20000.0,
     "fee_incl": 23600.0,
     "move_date": "9",
-    "notes": "דמי ניהול - גיל אדמתי"
+    "notes": "דמי ניהול - גיל אדמתי",
+    "code": "0022",
+    "active": true,
+    "flow_from": "",
+    "flow_to": "",
+    "last_pushed": ""
   }
 ]

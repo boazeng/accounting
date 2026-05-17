@@ -56,6 +56,7 @@ def save_transactions(rows):
     for r in rows or []:
         clean.append({
             "id": r.get("id") or str(uuid.uuid4()),
+            "code": str(r.get("code") or "").strip(),
             "company": r.get("company", ""),
             "kind": r.get("kind") if r.get("kind") in ("income", "expense") else "expense",
             "category": r.get("category", ""),
@@ -64,8 +65,9 @@ def save_transactions(rows):
             "amount": _num(r.get("amount")),
             "created_at": r.get("created_at") or datetime.utcnow().isoformat() + "Z",
         })
+    _assign_codes(clean, _DATA_FILE)
     _save(clean)
-    return len(clean)
+    return clean
 
 
 def list_transactions(company=None):
@@ -80,6 +82,7 @@ def add_transaction(company, kind, category, pay_date, details, amount):
     rows = _load()
     row = {
         "id": str(uuid.uuid4()),
+        "code": _fmt_code(_max_code() + 1),
         "company": company,
         "kind": kind if kind in ("income", "expense") else "expense",
         "category": category,
@@ -119,6 +122,50 @@ _EMP_FILE = os.path.join(_DIR, "employees.json")
 _VEH_FILE = os.path.join(_DIR, "vehicles.json")
 _LOAN_FILE = os.path.join(_DIR, "loans.json")
 _MGMT_FILE = os.path.join(_DIR, "mgmt_fees.json")
+_MISC_FILE = os.path.join(_DIR, "misc.json")
+
+# every file that holds coded rows (the global running "קוד" sequence
+# is unique across ALL of them, incl. the main transactions store)
+_ALL_FILES = [_DATA_FILE, _EMP_FILE, _VEH_FILE, _LOAN_FILE, _MGMT_FILE, _MISC_FILE]
+
+
+def _code_int(v):
+    try:
+        return int(str(v).strip())
+    except (TypeError, ValueError):
+        return 0
+
+
+def _max_code(exclude=None):
+    """Highest 'code' across all stores (optionally skipping one file
+    whose rows are being passed in fresh)."""
+    hi = 0
+    for f in _ALL_FILES:
+        if f == exclude or not os.path.isfile(f):
+            continue
+        try:
+            with open(f, "r", encoding="utf-8") as fh:
+                for r in json.load(fh):
+                    hi = max(hi, _code_int(r.get("code")))
+        except Exception:  # noqa: BLE001
+            pass
+    return hi
+
+
+def _fmt_code(n):
+    return f"{n:04d}"
+
+
+def _assign_codes(rows, exclude_file):
+    """Keep existing codes, assign the next sequential code to any row
+    missing one. Sequence continues from the global max."""
+    counter = _max_code(exclude=exclude_file)
+    counter = max([counter] + [_code_int(r.get("code")) for r in rows])
+    for r in rows:
+        if not _code_int(r.get("code")):
+            counter += 1
+            r["code"] = _fmt_code(counter)
+    return rows
 
 
 def _read(path):
@@ -142,7 +189,7 @@ def _write(path, rows):
 
 def _add(path, row):
     rows = _read(path)
-    row = {"id": str(uuid.uuid4()), **row}
+    row = {"id": str(uuid.uuid4()), "code": _fmt_code(_max_code() + 1), **row}
     rows.append(row)
     _write(path, rows)
     return row
@@ -200,6 +247,21 @@ def add_mgmt(company, employee, fee_before, fee_incl, move_date="", notes=""):
     })
 
 
+def list_misc():
+    return _read(_MISC_FILE)
+
+
+def add_misc(company, kind, category, notes, move_date,
+             from_month, to_month, amount):
+    return _add(_MISC_FILE, {
+        "company": company,
+        "kind": kind if kind in ("income", "expense") else "expense",
+        "category": category, "notes": notes, "move_date": move_date,
+        "from_month": from_month, "to_month": to_month,
+        "amount": float(amount),
+    })
+
+
 def seed_extras():
     """Seed sample employees / vehicles / loans on first run (idempotent)."""
     if not _read(_EMP_FILE):
@@ -236,6 +298,15 @@ def seed_extras():
         ]:
             add_mgmt(*r)
         logger.info("seeded mgmt fees")
+    if not _read(_MISC_FILE):
+        for r in [
+            ("חניה אורבנית", "expense", "אחזקת מתקנים", "תחזוקה שוטפת",
+             "15", "06.26", "12.26", 3500),
+            ("אנרגיה אורבנית", "income", "מענק", "מענק התייעלות אנרגטית",
+             "1", "07.26", "07.26", 45000),
+        ]:
+            add_misc(*r)
+        logger.info("seeded misc")
 
 
 def _save_list(path, rows, money_keys):
@@ -247,8 +318,9 @@ def _save_list(path, rows, money_keys):
                 continue
             row[k] = _num(v) if k in money_keys else v
         clean.append(row)
+    _assign_codes(clean, path)
     _write(path, clean)
-    return len(clean)
+    return clean
 
 
 def save_employees(rows):
@@ -265,3 +337,137 @@ def save_loans(rows):
 
 def save_mgmt(rows):
     return _save_list(_MGMT_FILE, rows, {"fee_before", "fee_incl"})
+
+
+def save_misc(rows):
+    return _save_list(_MISC_FILE, rows, {"amount"})
+
+
+# ===== Flow related-table rows -> cashflow (תזרים) =====
+_SRC_FILE = {
+    "employees": _EMP_FILE,
+    "vehicles": _VEH_FILE,
+    "loans": _LOAN_FILE,
+    "mgmt": _MGMT_FILE,
+    "misc": _MISC_FILE,
+}
+
+
+def _mmyy(s):
+    """'06.26' / '0626' / '6.26' -> (year, month) or None."""
+    d = "".join(ch for ch in str(s or "") if ch.isdigit())
+    if len(d) < 3:
+        return None
+    d = d[:4].rjust(4, "0")
+    mm, yy = int(d[:2]), int(d[2:])
+    if not 1 <= mm <= 12:
+        return None
+    return (2000 + yy, mm)
+
+
+def _months_between(a, b):
+    fa, fb = _mmyy(a), _mmyy(b)
+    if not fa or not fb:
+        return []
+    (y1, m1), (y2, m2) = fa, fb
+    out = []
+    y, m = y1, m1
+    while (y, m) <= (y2, m2) and len(out) < 600:
+        out.append((y, m))
+        m += 1
+        if m > 12:
+            m, y = 1, y + 1
+    return out
+
+
+def _flow_tx(source, row, year, month):
+    """Build one cashflow transaction from a source row for a given month."""
+    notes = row.get("notes", "")
+    day = "".join(ch for ch in str(row.get("move_date") or "1") if ch.isdigit()) or "1"
+    day = max(1, min(28, int(day)))
+    n = lambda k: _num(row.get(k))  # noqa: E731
+
+    if source == "employees":
+        kind, cat = "expense", "שכר"
+        amount = n("net") + n("social") + n("extra")
+    elif source == "vehicles":
+        kind, cat = "expense", "רכב"
+        amount = n("leasing") + n("fuel")
+    elif source == "loans":
+        kind, cat = "expense", (row.get("loan_type") or "הלוואה")
+        amount = n("monthly")
+    elif source == "mgmt":
+        kind, cat = "expense", "דמי ניהול"
+        amount = n("fee_incl")
+    else:  # misc
+        kind = row.get("kind") if row.get("kind") in ("income", "expense") else "expense"
+        cat = row.get("category", "")
+        amount = n("amount")
+
+    return {
+        "id": str(uuid.uuid4()),
+        "code": row.get("code", ""),
+        "company": row.get("company", ""),
+        "kind": kind,
+        "category": cat,
+        "pay_date": f"{year:04d}-{month:02d}-{day:02d}",
+        "details": notes,
+        "amount": float(amount),
+        "source": source,
+        "generated": True,
+        "created_at": datetime.utcnow().isoformat() + "Z",
+    }
+
+
+def flow_to_cashflow(source, code):
+    """(Re)generate cashflow rows for one source row. Idempotent: removes
+    previously generated rows with the same code first. Manual cashflow
+    rows (no 'generated') are never touched."""
+    if source not in _SRC_FILE:
+        return {"ok": False, "error": "מקור לא מוכר"}
+    src_rows = _read(_SRC_FILE[source])
+    row = next((r for r in src_rows if str(r.get("code")) == str(code)), None)
+    if not row:
+        return {"ok": False, "error": f"לא נמצאה שורה עם קוד {code}"}
+
+    cf = [r for r in _load()
+          if not (str(r.get("code")) == str(code) and r.get("generated"))]
+
+    active = bool(row.get("active", True))
+    new_rows = []
+    if active:
+        months = _months_between(row.get("flow_from"), row.get("flow_to"))
+        if not months:
+            return {"ok": False,
+                    "error": "חסר/שגוי תאריך התחלה או סיום (mm.yy)"}
+        new_rows = [_flow_tx(source, row, y, m) for (y, m) in months]
+        cf.extend(new_rows)
+
+    _save(cf)
+
+    row["last_pushed"] = row.get("flow_to", "") if active else ""
+    _write(_SRC_FILE[source], src_rows)
+
+    return {"ok": True, "pushed": len(new_rows),
+            "last_pushed": row["last_pushed"], "code": str(code),
+            "active": active}
+
+
+def delete_cashflow_by_code(code):
+    """Delete all GENERATED cashflow rows carrying this code; clear the
+    source row's last_pushed. Manual rows are kept."""
+    cf = _load()
+    keep = [r for r in cf
+            if not (str(r.get("code")) == str(code) and r.get("generated"))]
+    deleted = len(cf) - len(keep)
+    _save(keep)
+    for f in _SRC_FILE.values():
+        rows = _read(f)
+        changed = False
+        for r in rows:
+            if str(r.get("code")) == str(code) and r.get("last_pushed"):
+                r["last_pushed"] = ""
+                changed = True
+        if changed:
+            _write(f, rows)
+    return {"ok": True, "deleted": deleted, "code": str(code)}

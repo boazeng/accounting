@@ -8,7 +8,12 @@
     "plate": "12-345-67",
     "leasing": 2300.0,
     "fuel": 1400.0,
-    "notes": "רכב - דנה לוי"
+    "notes": "רכב - דנה לוי",
+    "code": "0013",
+    "active": true,
+    "flow_from": "",
+    "flow_to": "",
+    "last_pushed": ""
   },
   {
     "id": "673c2a00-08a7-4620-af12-96da595a258a",
@@ -19,7 +24,12 @@
     "plate": "89-012-34",
     "leasing": 1800.0,
     "fuel": 1100.0,
-    "notes": "רכב - יוסי כהן"
+    "notes": "רכב - יוסי כהן",
+    "code": "0014",
+    "active": true,
+    "flow_from": "",
+    "flow_to": "",
+    "last_pushed": ""
   },
   {
     "id": "7ed1e766-0f7d-49c5-9455-a9d1f5de802e",
@@ -30,6 +40,11 @@
     "plate": "56-789-01",
     "leasing": 3100.0,
     "fuel": 1700.0,
-    "notes": "רכב - מירב אזולאי"
+    "notes": "רכב - מירב אזולאי",
+    "code": "0015",
+    "active": true,
+    "flow_from": "",
+    "flow_to": "",
+    "last_pushed": ""
   }
 ]

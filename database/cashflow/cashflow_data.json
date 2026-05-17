@@ -1,6 +1,18 @@
 [
   {
+    "id": "121b5c5a-9516-407b-8eb4-f47ef91f4244",
+    "code": "0009",
+    "company": "חניה אורבנית",
+    "kind": "expense",
+    "category": "שכר",
+    "pay_date": "2026-01-01",
+    "details": "משכורת - דנה לוי",
+    "amount": 17900.0,
+    "created_at": "2026-05-17T06:03:25.357541Z"
+  },
+  {
     "id": "f1771254-29e3-44f8-9703-94129c9982f2",
+    "code": "0001",
     "company": "חניה אורבנית",
     "kind": "income",
     "category": "לקוחות",
@@ -11,6 +23,18 @@
   },
   {
     "id": "793fc888-ddd5-4faa-8b3a-7bcb3135226c",
+    "code": "0002",
+    "company": "אחזקה אורבנית",
+    "kind": "income",
+    "category": "לקוחות",
+    "pay_date": "2026-06-08",
+    "details": "חוזה אחזקה רבעוני",
+    "amount": 64000.0,
+    "created_at": "2026-05-15T20:49:09.173098Z"
+  },
+  {
+    "id": "a6e76955-b515-441c-853e-676db41f51ea",
+    "code": "0002",
     "company": "אחזקה אורבנית",
     "kind": "income",
     "category": "לקוחות",
@@ -21,6 +45,7 @@
   },
   {
     "id": "b8556a1d-2c5d-4c13-8316-d847f85e6eb0",
+    "code": "0003",
     "company": "חניה אורבנית",
     "kind": "expense",
     "category": "ספקים",
@@ -31,6 +56,7 @@
   },
   {
     "id": "661c2a2c-910e-4fc1-84b9-95f9ca2df8f1",
+    "code": "0004",
     "company": "אנרגיה אורבנית",
     "kind": "income",
     "category": "לקוחות",
@@ -41,6 +67,7 @@
   },
   {
     "id": "e265ec89-b0be-4331-8064-56d4e426d015",
+    "code": "0005",
     "company": "אנרגיה אורבנית",
     "kind": "expense",
     "category": "ספקים",
@@ -51,6 +78,7 @@
   },
   {
     "id": "a6a2227c-726b-48d2-a363-772775dfe548",
+    "code": "0006",
     "company": "אחזקה אורבנית",
     "kind": "expense",
     "category": "שכר",
@@ -61,6 +89,7 @@
   },
   {
     "id": "7c97eb55-97b1-41bf-8db0-c177fbdb8ca7",
+    "code": "0007",
     "company": "חניה אורבנית",
     "kind": "income",
     "category": "לקוחות",
@@ -71,6 +100,7 @@
   },
   {
     "id": "d0228deb-a752-4e6e-ab17-f6e6d17f6c7c",
+    "code": "0008",
     "company": "אנרגיה אורבנית",
     "kind": "expense",
     "category": "מסים",

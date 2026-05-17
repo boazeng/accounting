@@ -38,7 +38,14 @@ const moneySign = (v) => {
   return n < 0 ? 'et-money-neg' : 'et-money-pos'
 }
 
-export default function EditableTable({ columns, data, onChange, onAddBelow, onDelete }) {
+export default function EditableTable({
+  columns,
+  data,
+  onChange,
+  onAddBelow,
+  onDelete,
+  rowActions = [],
+}) {
   const cells = useRef({})
   const [focused, setFocused] = useState(null) // "ri:key"
 
@@ -72,6 +79,19 @@ export default function EditableTable({ columns, data, onChange, onAddBelow, onD
 
   const renderField = (row, ri, col) => {
     const key = ck(ri, col.key)
+    if (col.type === 'readonly') {
+      return <span className="et-readonly">{row[col.key]}</span>
+    }
+    if (col.type === 'checkbox') {
+      return (
+        <input
+          type="checkbox"
+          className="et-check"
+          checked={!!row[col.key]}
+          onChange={(e) => onChange(row.id, col.key, e.target.checked)}
+        />
+      )
+    }
     if (col.type === 'select') {
       return (
         <select
@@ -136,18 +156,15 @@ export default function EditableTable({ columns, data, onChange, onAddBelow, onD
       <table className="et-table">
         <thead>
           <tr>
+            <th className="et-actions-h">פעולות</th>
             {columns.map((c) => (
               <th key={c.key}>{c.label}</th>
             ))}
-            <th className="et-actions-h">פעולות</th>
           </tr>
         </thead>
         <tbody>
           {data.map((row, ri) => (
             <tr key={row.id}>
-              {columns.map((c) => (
-                <td key={c.key}>{renderField(row, ri, c)}</td>
-              ))}
               <td className="et-actions">
                 <button
                   type="button"
@@ -165,7 +182,21 @@ export default function EditableTable({ columns, data, onChange, onAddBelow, onD
                 >
                   ×
                 </button>
+                {rowActions.map((a) => (
+                  <button
+                    key={a.key}
+                    type="button"
+                    className={`et-act ${a.cls || ''}`}
+                    title={a.title}
+                    onClick={() => a.onClick(row)}
+                  >
+                    {a.label}
+                  </button>
+                ))}
               </td>
+              {columns.map((c) => (
+                <td key={c.key}>{renderField(row, ri, c)}</td>
+              ))}
             </tr>
           ))}
         </tbody>
