@@ -31,6 +31,16 @@ const apps = [
     tag: 'חדש',
     ready: false,
   },
+  {
+    key: 'accounting',
+    tone: 'purple',
+    title: 'הנהלת חשבונות',
+    description: 'קליטת חשבוניות ספק, אישורים ורישום בפריוריטי',
+    metric: 'חשבוניות ספק · מייל',
+    tag: 'חדש',
+    ready: true,
+    link: '/accounting',
+  },
 ]
 
 export default function AppCards() {

@@ -22,9 +22,10 @@
 }
 
 /* tone tokens */
-.syscard-green { --t-bg: #E8F0EA; --t-bd: #CFE2D4; --t-soft: #F4F8F5; --t-bdl: #E8EFE9; }
-.syscard-steel { --t-bg: #EAEFF4; --t-bd: #D5DFEA; --t-soft: #F5F8FB; --t-bdl: #EBEFF4; }
-.syscard-blue  { --t-bg: #E6EEFE; --t-bd: #C9D8FB; --t-soft: #F2F6FE; --t-bdl: #E1EAFC; }
+.syscard-green  { --t-bg: #E8F0EA; --t-bd: #CFE2D4; --t-soft: #F4F8F5; --t-bdl: #E8EFE9; }
+.syscard-steel  { --t-bg: #EAEFF4; --t-bd: #D5DFEA; --t-soft: #F5F8FB; --t-bdl: #EBEFF4; }
+.syscard-blue   { --t-bg: #E6EEFE; --t-bd: #C9D8FB; --t-soft: #F2F6FE; --t-bdl: #E1EAFC; }
+.syscard-purple { --t-bg: #F0EAFB; --t-bd: #D9C8F5; --t-soft: #F7F3FD; --t-bdl: #EDE5FA; }
 
 .syscard {
   background: var(--t-soft);

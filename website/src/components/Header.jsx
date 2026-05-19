@@ -4,6 +4,7 @@ import './Header.css'
 
 const navItems = [
   { path: '/', label: 'בית' },
+  { path: '/accounting', label: 'הנהלת חשבונות' },
   { path: '/management-reports', label: 'דוחות ניהוליים' },
   { path: '/cashflow', label: 'תזרים' },
   // existing system pages

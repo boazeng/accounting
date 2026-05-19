@@ -162,6 +162,20 @@ invoice_printer = importlib.util.module_from_spec(spec_420)
 sys.modules["invoice_printer"] = invoice_printer
 spec_420.loader.exec_module(invoice_printer)
 
+# Load supplier inbox database module
+supplier_inbox_db_path = PROJECT_ROOT / "database" / "supplier_inbox" / "supplier_inbox_db.py"
+spec_si_db = importlib.util.spec_from_file_location("supplier_inbox_db", supplier_inbox_db_path)
+supplier_inbox_db = importlib.util.module_from_spec(spec_si_db)
+sys.modules["supplier_inbox_db"] = supplier_inbox_db
+spec_si_db.loader.exec_module(supplier_inbox_db)
+
+# Load Gmail poller module
+gmail_poller_path = PROJECT_ROOT / "agents" / "tools-connection" / "gmail" / "gmail_poller.py"
+spec_gmail = importlib.util.spec_from_file_location("gmail_poller", gmail_poller_path)
+gmail_poller = importlib.util.module_from_spec(spec_gmail)
+sys.modules["gmail_poller"] = gmail_poller
+spec_gmail.loader.exec_module(gmail_poller)
+
 # Load maintenance database module
 maint_db_path = PROJECT_ROOT / "database" / "maintenance" / "maintenance_db.py"
 spec_maint_db = importlib.util.spec_from_file_location("maintenance_db", maint_db_path)
@@ -203,6 +217,18 @@ spec_kn_db = importlib.util.spec_from_file_location("knowledge_db", kn_db_path)
 knowledge_db = importlib.util.module_from_spec(spec_kn_db)
 sys.modules["knowledge_db"] = knowledge_db
 spec_kn_db.loader.exec_module(knowledge_db)
+
+# Load receipts database module
+try:
+    receipts_db_path = PROJECT_ROOT / "database" / "receipts" / "receipts_db.py"
+    spec_rec_db = importlib.util.spec_from_file_location("receipts_db", receipts_db_path)
+    receipts_db = importlib.util.module_from_spec(spec_rec_db)
+    sys.modules["receipts_db"] = receipts_db
+    spec_rec_db.loader.exec_module(receipts_db)
+    logger.info(f"receipts_db loaded from {receipts_db_path}")
+except Exception as _rec_db_err:
+    logger.error(f"receipts_db load FAILED: {_rec_db_err}")
+    receipts_db = None
 
 # Load cash-flow (תזרים) database module
 cf_db_path = PROJECT_ROOT / "database" / "cashflow" / "cashflow_db.py"
@@ -4048,6 +4074,497 @@ def add_cashflow():
         return jsonify({"ok": True, "transaction": row})
     except Exception as e:
         logger.error(f"cashflow add failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── Supplier Inbox (חשבוניות ספק ממייל) ─────────────────────────
+
+@app.route("/api/supplier-inbox/poll", methods=["POST"])
+def supplier_inbox_poll():
+    """Trigger Gmail poll: fetch unread emails with PDFs and analyze them."""
+    try:
+        result = gmail_poller.poll_once()
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"supplier inbox poll failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/supplier-inbox/pending", methods=["GET"])
+def supplier_inbox_pending():
+    """List all pending invoices (without PDF data)."""
+    try:
+        rows = supplier_inbox_db.list_pending()
+        return jsonify({"ok": True, "invoices": rows})
+    except Exception as e:
+        logger.error(f"supplier inbox list failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/supplier-inbox/all", methods=["GET"])
+def supplier_inbox_all():
+    """List all invoices regardless of status."""
+    try:
+        rows = supplier_inbox_db.list_all()
+        return jsonify({"ok": True, "invoices": rows})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/supplier-inbox/<invoice_id>/pdf", methods=["GET"])
+def supplier_inbox_pdf(invoice_id):
+    """Return the PDF base64 for preview."""
+    try:
+        record = supplier_inbox_db.get_invoice(invoice_id)
+        if not record:
+            return jsonify({"ok": False, "error": "Not found"}), 404
+        return jsonify({"ok": True, "pdf_base64": record.get("pdf_base64", ""), "filename": record.get("pdf_filename", "")})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/supplier-inbox/<invoice_id>/approve", methods=["POST"])
+def supplier_inbox_approve(invoice_id):
+    """Approve invoice: create in Priority and mark as approved."""
+    try:
+        record = supplier_inbox_db.get_invoice(invoice_id)
+        if not record:
+            return jsonify({"ok": False, "error": "Invoice not found"}), 404
+
+        body = request.get_json(force=True) or {}
+        supname = body.get("supname", "").strip()
+        branch = body.get("branch", "").strip()
+        sku = body.get("sku", "").strip()
+        date = body.get("date") or record.get("date", "")
+        invoice_num = body.get("invoice_num") or record.get("invoice_num", "")
+        amount_no_vat = body.get("amount_no_vat") or record.get("amount_no_vat", "0")
+        description = body.get("description") or record.get("description", "")
+
+        if not supname:
+            return jsonify({"ok": False, "error": "supname is required"}), 400
+        if not branch:
+            return jsonify({"ok": False, "error": "branch is required"}), 400
+        if not invoice_num:
+            return jsonify({"ok": False, "error": "invoice_num is required"}), 400
+
+        set_priority_env(env="real")
+        url = get_priority_url(env="real")
+        auth = HTTPBasicAuth(
+            os.getenv("PRIORITY_USERNAME", ""),
+            os.getenv("PRIORITY_PASSWORD", ""),
+        )
+
+        items = [{
+            "PARTNAME": sku if sku else "1",
+            "TQUANT": 1,
+            "PRICE": float(str(amount_no_vat).replace(",", "") or 0),
+        }]
+        if description:
+            items[0]["PDES"] = description
+
+        invoice_body = {
+            "SUPNAME": supname,
+            "IVDATE": date,
+            "BRANCHNAME": branch,
+            "BOOKNUM": invoice_num,
+            "DETAILS": description,
+            "YINVOICEITEMS_SUBFORM": items,
+        }
+
+        headers = {"Content-Type": "application/json", "Accept": "application/json", "OData-Version": "4.0"}
+        resp = http_requests.post(f"{url}/YINVOICES", json=invoice_body, headers=headers, auth=auth, timeout=30)
+        resp.raise_for_status()
+        priority_result = resp.json()
+        priority_ivnum = priority_result.get("IVNUM", "")
+
+        supplier_inbox_db.approve_invoice(invoice_id, supname, branch, sku, priority_ivnum)
+        return jsonify({"ok": True, "ivnum": priority_ivnum})
+
+    except http_requests.exceptions.HTTPError as e:
+        logger.error(f"Priority API error approving invoice {invoice_id}: {e}")
+        try:
+            detail = e.response.json()
+        except Exception:
+            detail = str(e)
+        return jsonify({"ok": False, "error": str(e), "detail": detail}), 500
+    except Exception as e:
+        logger.error(f"supplier inbox approve failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/supplier-inbox/<invoice_id>/reject", methods=["POST"])
+def supplier_inbox_reject(invoice_id):
+    """Reject an invoice."""
+    try:
+        body = request.get_json(force=True) or {}
+        reason = body.get("reason", "")
+        record = supplier_inbox_db.reject_invoice(invoice_id, reason)
+        if not record:
+            return jsonify({"ok": False, "error": "Not found"}), 404
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/supplier-inbox/upload", methods=["POST"])
+def supplier_inbox_upload():
+    """Accept a PDF upload, analyze with LLM2000, save to inbox DB.
+
+    Multipart form field: file (PDF).
+    Returns list of created invoice records (one per invoice found in PDF).
+    """
+    try:
+        if "file" not in request.files:
+            return jsonify({"ok": False, "error": "לא נמצא קובץ בבקשה"}), 400
+
+        f = request.files["file"]
+        if not f.filename:
+            return jsonify({"ok": False, "error": "שם קובץ ריק"}), 400
+
+        filename = f.filename
+        pdf_bytes = f.read()
+        if not pdf_bytes:
+            return jsonify({"ok": False, "error": "הקובץ ריק"}), 400
+
+        pdf_b64 = __import__("base64").b64encode(pdf_bytes).decode("utf-8")
+
+        # Try AI extraction; if unavailable or failing — save with empty fields for manual entry
+        invoices_found = []
+        try:
+            result = llm2000_analyzer.analyze_pdf(pdf_bytes)
+            if result.get("ok"):
+                invoices_found = result.get("invoices", [])
+        except Exception as ai_err:
+            logger.warning(f"LLM2000 extraction skipped: {ai_err}")
+
+        if not invoices_found:
+            invoices_found = [{}]
+
+        created = []
+
+        for inv_data in invoices_found:
+            extracted = {
+                "companyId": inv_data.get("companyId", ""),
+                "invoiceNum": inv_data.get("invoiceNum", ""),
+                "date": inv_data.get("date", ""),
+                "amountNoVat": inv_data.get("amountNoVat", ""),
+                "amountWithVat": inv_data.get("amountWithVat", ""),
+                "description": inv_data.get("description", ""),
+            }
+            rec = supplier_inbox_db.add_invoice(
+                email_from="העלאה ידנית",
+                email_subject=filename,
+                pdf_filename=filename,
+                pdf_base64=pdf_b64,
+                extracted=extracted,
+            )
+            created.append({k: v for k, v in rec.items() if k != "pdf_base64"})
+
+        return jsonify({"ok": True, "created": created, "count": len(created)})
+
+    except Exception as e:
+        logger.error(f"supplier inbox upload failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── Receipts (הפקת קבלות) ─────────────────────────────────────
+# Flow: bank txn → saved locally → accountant approves → THEN draft created in Priority
+
+def _prio_auth():
+    return HTTPBasicAuth(os.getenv("PRIORITY_USERNAME", ""), os.getenv("PRIORITY_PASSWORD", ""))
+
+
+def _prio_url():
+    return PRIORITY_URL_REAL
+
+
+_PRIO_READ_HEADERS = {"Accept": "application/json", "OData-Version": "4.0"}
+_PRIO_WRITE_HEADERS = {"Accept": "application/json", "Content-Type": "application/json", "OData-Version": "4.0"}
+
+_CASHNAME_MAP_FILE = PROJECT_ROOT / "database" / "receipts" / "cashname_mapping.json"
+
+
+def _load_cashname_map():
+    """Load locally-saved ACCNAME1 → CASHNAME mapping."""
+    try:
+        return json.loads(_CASHNAME_MAP_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_cashname_map(mapping):
+    _CASHNAME_MAP_FILE.write_text(json.dumps(mapping, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+@app.route("/api/receipts/cashname-map", methods=["POST"])
+def receipts_save_cashname_map():
+    """Save a user-confirmed ACCNAME1 → CASHNAME mapping for future auto-fill."""
+    try:
+        body = request.get_json(force=True) or {}
+        accname1 = body.get("accname1", "").strip()
+        cashname = body.get("cashname", "").strip()
+        if not accname1 or not cashname:
+            return jsonify({"ok": False, "error": "Missing fields"}), 400
+        mapping = _load_cashname_map()
+        mapping[accname1] = cashname
+        _save_cashname_map(mapping)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/bank-transactions", methods=["GET"])
+def receipts_bank_transactions():
+    """List unmatched bank transactions (FNCTRANS type 'הת') that may need a receipt.
+
+    'הת' = תנועת התאמה = bank statement import lines.
+    IVRECONDATE=null means not yet matched to an accounting entry in Priority.
+
+    Query params:
+      days   - how many days back to look (default 90)
+      branch - filter by branch (e.g. '026'). ACCNAME2 ends with '-{branch}'.
+    """
+    try:
+        days = int(request.args.get("days", 180))
+        branch = (request.args.get("branch") or "").strip()
+        from datetime import timedelta
+        since_date = (_now_il() - timedelta(days=days)).strftime("%Y-%m-%dT00:00:00Z")
+
+        flt = f"FNCPATNAME eq 'הת' and CURDATE ge {since_date}"
+        if branch and branch != "all":
+            # ACCNAME2 format: "4021-026" — suffix is the branch number
+            branch_safe = branch.replace("'", "")
+            flt += f" and endswith(ACCNAME2,'-{branch_safe}')"
+
+        r_fnc = http_requests.get(
+            f"{_prio_url()}/FNCTRANS"
+            f"?$filter={flt}"
+            "&$select=FNCNUM,CURDATE,ACCNAME1,ACCDES1,ACCNAME2,ACCDES2,SUM1,DETAILS,BRANCHNAME,IVRECONDATE"
+            "&$orderby=CURDATE desc&$top=500",
+            headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=30,
+        )
+        r_fnc.raise_for_status()
+        all_txns = r_fnc.json().get("value", [])
+
+        # Keep only unmatched (IVRECONDATE not set) and positive amounts
+        txns = [
+            t for t in all_txns
+            if not t.get("IVRECONDATE") and (t.get("SUM1") or 0) > 0
+        ]
+
+        for txn in txns:
+            txn["already_queued"] = receipts_db.is_duplicate(txn.get("FNCNUM", ""))
+
+        return jsonify({"ok": True, "transactions": txns, "days": days, "since": since_date[:10], "branch": branch})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+
+@app.route("/api/receipts/cash-accounts", methods=["GET"])
+def receipts_cash_accounts():
+    """Return valid CASHNAME codes from Priority's PAYOBLIG (cash/bank accounts) table.
+    Falls back to reading from recent TINVOICES if PAYOBLIG is unavailable."""
+    try:
+        # Try the authoritative cash accounts table first
+        all_cashnames = []
+        r_pay = http_requests.get(
+            f"{_prio_url()}/PAYOBLIG?$select=PAYOBLIGNAME,PAYOBLIGDES,BRANCHNAME&$top=200",
+            headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=15,
+        )
+        if r_pay.status_code == 200:
+            for rec in r_pay.json().get("value", []):
+                name = rec.get("PAYOBLIGNAME", "")
+                branch = rec.get("BRANCHNAME", "")
+                if name:
+                    all_cashnames.append({"name": name, "des": rec.get("PAYOBLIGDES", ""), "branch": branch})
+        else:
+            # Fallback: read unique CASHNAMEs from recent TINVOICES
+            r = http_requests.get(
+                f"{_prio_url()}/TINVOICES?$top=300&$select=CASHNAME,BRANCHNAME&$orderby=IVDATE desc",
+                headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=20,
+            )
+            r.raise_for_status()
+            seen = set()
+            for rec in r.json().get("value", []):
+                name = rec.get("CASHNAME", "")
+                branch = rec.get("BRANCHNAME", "")
+                if name and name not in seen:
+                    seen.add(name)
+                    all_cashnames.append({"name": name, "des": name, "branch": branch})
+
+        # Group by branch
+        by_branch = {}
+        for item in all_cashnames:
+            branch = item["branch"]
+            name = item["name"]
+            if name:
+                by_branch.setdefault(branch, [])
+                if name not in by_branch[branch]:
+                    by_branch[branch].append(name)
+        # Also build a flat list with descriptions for the UI
+        return jsonify({"ok": True, "byBranch": by_branch, "all": all_cashnames})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/pending", methods=["GET"])
+def receipts_pending():
+    """List locally-queued receipts pending accountant approval."""
+    try:
+        return jsonify({"ok": True, "receipts": receipts_db.list_pending()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/approved", methods=["GET"])
+def receipts_approved():
+    """List receipts that were sent to Priority, newest first."""
+    try:
+        limit = int(request.args.get("limit", 50))
+        all_recs = receipts_db.list_all()
+        approved = [r for r in all_recs if r.get("status") == "approved"]
+        approved.sort(key=lambda r: r.get("approved_at", ""), reverse=True)
+        return jsonify({"ok": True, "receipts": approved[:limit]})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/queue", methods=["POST"])
+def receipts_queue():
+    """Save an open invoice as a local pending receipt (no Priority call)."""
+    try:
+        body = request.get_json(force=True) or {}
+        # Support invoice-centric (CINVOICES) fields; IVNUM stored as fncnum key
+        fncnum = body.get("fncnum") or body.get("ivnum", "")
+        accname = body.get("accname") or body.get("custname", "")
+        accdes = body.get("accdes") or body.get("cdes", "")
+        cashname = body.get("cashname", "")
+        totprice = body.get("totprice", 0)
+        ivdate = body.get("ivdate", "")
+        branchname = body.get("branchname", "")
+        details = body.get("details", "תקבול")
+        source_ivnum = body.get("source_ivnum", "")
+
+        if not fncnum or not accname or not cashname or not totprice:
+            return jsonify({"ok": False, "error": "Missing required fields"}), 400
+
+        rec = receipts_db.add_receipt(fncnum, accname, accdes, cashname, totprice, ivdate, branchname, details, source_ivnum)
+        if rec is None:
+            return jsonify({"ok": False, "error": "חשבונית זו כבר קיימת בתור"}), 409
+        return jsonify({"ok": True, "receipt": rec})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/<receipt_id>/approve", methods=["POST"])
+def receipts_approve(receipt_id):
+    """Approve a local receipt — creates a DRAFT in Priority TINVOICES."""
+    try:
+        rec = receipts_db.get_receipt(receipt_id)
+        if not rec:
+            return jsonify({"ok": False, "error": "Not found"}), 404
+        if rec.get("status") != "pending":
+            return jsonify({"ok": False, "error": "לא ניתן לאשר — סטטוס " + rec.get("status", "")}), 400
+
+        # Build full account code: "50904-026" (custcode-branch), or plain if branch=000
+        raw_accname = rec["accname"]
+        branchname = rec.get("branchname", "")
+        branch = (branchname or "").strip()
+        if branch and branch != "000" and not raw_accname.endswith(f"-{branch}"):
+            accname = f"{raw_accname}-{branch}"
+        else:
+            accname = raw_accname
+        # Normalize date to YYYY-MM-DD (strip time/tz if present)
+        ivdate_str = (rec.get("ivdate") or "")[:10]
+
+        payload = {
+            "ACCNAME":     accname,          # "50904-026" — חשבון לקוח כולל סניף
+            "CASHNAME":    rec["cashname"],  # "026-201"   — קופה (פתיח = מספר הסניף)
+            "TOTPRICE":    float(rec["totprice"]),
+            "IVDATE":      ivdate_str,
+            "PAYDATE":     ivdate_str,       # תאריך פירעון = מועד הוצאת הקבלה
+            "BRANCHNAME":  branchname,
+            "DETAILS":     rec["details"],
+            "CASHPAYMENT": float(rec["totprice"]),  # סכום לתשלום
+            # FINAL נשמט — טיוטה, החשבת מוסיפה פרטי תשלום וסוגרת ידנית
+        }
+
+        logger.info(f"TINVOICES payload: {payload}")
+        resp = http_requests.post(
+            f"{_prio_url()}/TINVOICES", json=payload,
+            headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=20,
+        )
+        resp.raise_for_status()
+        resp_data     = resp.json()
+        priority_ivnum = resp_data.get("IVNUM", "")
+        ivtype        = resp_data.get("IVTYPE", "T")
+        debit_val     = resp_data.get("DEBIT",  "D")
+
+        # ── Step 2: fill TPAYMENT2_SUBFORM (פירוט תשלומים אחרים) ─────
+        # PAYMENTCODE "3" = העברה בנקאית
+        key = f"IVNUM='{priority_ivnum}',IVTYPE='{ivtype}',DEBIT='{debit_val}'"
+        amount = float(rec["totprice"])
+        pay_payload = {
+            "PAYMENTCODE": "3",       # העברה בנקאית
+            "PAYDATE":     ivdate_str,
+            "QPRICE":      amount,
+            "FIRSTPAY":    amount,
+            "TOTPRICE":    amount,
+            "DETAILS":     rec["details"],
+        }
+        try:
+            http_requests.post(
+                f"{_prio_url()}/TINVOICES({key})/TPAYMENT2_SUBFORM",
+                json=pay_payload, headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=15,
+            ).raise_for_status()
+            logger.info(f"TPAYMENT2_SUBFORM filled for {priority_ivnum}")
+        except Exception as pay_err:
+            logger.warning(f"TPAYMENT2_SUBFORM fill failed (non-fatal): {pay_err}")
+
+        receipts_db.approve_receipt(receipt_id, priority_ivnum)
+        return jsonify({"ok": True, "priority_ivnum": priority_ivnum})
+    except http_requests.exceptions.HTTPError as e:
+        try:
+            detail = e.response.json()
+        except Exception:
+            detail = str(e)
+        return jsonify({"ok": False, "error": str(e), "detail": detail, "payload_sent": payload}), 500
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/<receipt_id>/edit", methods=["POST"])
+def receipts_edit(receipt_id):
+    """Update cashname / details on a pending receipt (before approval)."""
+    try:
+        body = request.get_json(force=True) or {}
+        rec = receipts_db.get_receipt(receipt_id)
+        if not rec:
+            return jsonify({"ok": False, "error": "Not found"}), 404
+        if rec.get("status") != "pending":
+            return jsonify({"ok": False, "error": "ניתן לערוך רק קבלות ממתינות"}), 400
+        if "cashname" in body:
+            rec["cashname"] = body["cashname"]
+        if "details" in body:
+            rec["details"] = body["details"]
+        receipts_db._save_receipt(rec)
+        return jsonify({"ok": True, "receipt": rec})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/<receipt_id>/reject", methods=["POST"])
+def receipts_reject(receipt_id):
+    """Reject a locally-queued receipt (no Priority call)."""
+    try:
+        body = request.get_json(force=True) or {}
+        reason = body.get("reason", "")
+        rec = receipts_db.reject_receipt(receipt_id, reason)
+        if not rec:
+            return jsonify({"ok": False, "error": "Not found"}), 404
+        return jsonify({"ok": True})
+    except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
 

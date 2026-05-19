@@ -37,6 +37,13 @@ const GLYPHS = {
       <circle cx="12" cy="12" r="0.6" fill="currentColor" />
     </g>
   ),
+  accounting: (
+    <g fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6 3 H15 L19 7 V21 H6 Z" />
+      <path d="M9 12 H15 M9 16 H13" />
+      <path d="M13 3 V8 H19" />
+    </g>
+  ),
   calendar: (
     <g fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <rect x="4" y="5" width="16" height="15" rx="2" />

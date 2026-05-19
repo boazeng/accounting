@@ -37,6 +37,9 @@ import ParkingProjectsPage from './pages/ParkingProjectsPage'
 import DesignSandboxPage from './pages/DesignSandboxPage' // TEMP design sandbox — delete later
 import PlaceholderPage from './pages/PlaceholderPage'
 import CashflowPage from './pages/CashflowPage'
+import SupplierInboxPage from './pages/SupplierInboxPage'
+import AccountingPage from './pages/AccountingPage'
+import ReceiptsPage from './pages/ReceiptsPage'
 
 export default function App() {
   return (
@@ -71,6 +74,9 @@ export default function App() {
           <Route path="/apps" element={<AppsPage />} />
           <Route path="/apps/supplier-invoices" element={<SupplierInvoicesPage />} />
           <Route path="/apps/supplier-invoice-entry" element={<SupplierInvoiceEntryPage />} />
+          <Route path="/accounting" element={<AccountingPage />} />
+          <Route path="/accounting/supplier-inbox" element={<SupplierInboxPage />} />
+          <Route path="/accounting/receipts" element={<ReceiptsPage />} />
           <Route path="/apps/invoice-printer" element={<InvoicePrinterPage />} />
           <Route path="/apps/pdf-tools" element={<PdfToolsPage />} />
           <Route path="/apps/pdf-sign" element={<PdfSignPage />} />
