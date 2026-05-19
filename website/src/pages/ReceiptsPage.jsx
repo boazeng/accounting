@@ -42,6 +42,9 @@ export default function ReceiptsPage() {
   const [editDetails, setEditDetails] = useState('')
   const [editSaving, setEditSaving] = useState(false)
 
+  // Close receipt via Web SDK
+  const [closing, setClosing] = useState(null)  // receipt id being closed
+
   const [days, setDays] = useState(180)
   const [since, setSince] = useState('')
   const [branchFilter, setBranchFilter] = useState('all')
@@ -172,6 +175,22 @@ export default function ReceiptsPage() {
     }
   }
 
+  async function closeReceipt(rec) {
+    if (!window.confirm(`לסגור את הקבלה ${rec.priority_ivnum} בפריוריטי?\n(פעולה זו מפעילה פרוצדורת סגירה — אינה הפיכה)`)) return
+    setClosing(rec.id)
+    try {
+      const resp = await fetch(`${API}/api/receipts/${rec.id}/close`, { method: 'POST' })
+      const data = await resp.json()
+      if (!data.ok) throw new Error(data.error || 'שגיאה')
+      await loadAll()
+      alert(`קבלה ${rec.priority_ivnum} נסגרה בהצלחה בפריוריטי`)
+    } catch (e) {
+      alert('שגיאה בסגירת קבלה: ' + e.message)
+    } finally {
+      setClosing(null)
+    }
+  }
+
   async function rejectReceipt(rec) {
     if (!window.confirm(`לבטל את הקבלה של ${rec.accdes}?`)) return
     try {
@@ -283,15 +302,16 @@ export default function ReceiptsPage() {
                         <th>תאריך אישור</th>
                         <th>לקוח</th>
                         <th>סכום</th>
-                        <th>מס׳ תנועה זמני</th>
+                        <th>מס׳ קבלה בפריוריטי</th>
                         <th>חשבון בנק</th>
                         <th>פירוט</th>
                         <th>סניף</th>
+                        <th></th>
                       </tr>
                     </thead>
                     <tbody>
                       {approved.map(rec => (
-                        <tr key={rec.id}>
+                        <tr key={rec.id} style={rec.status === 'closed' ? { opacity: 0.6 } : {}}>
                           <td>{fmt(rec.approved_at)}</td>
                           <td>{rec.accdes}</td>
                           <td className="receipts-amount">{fmtAmount(rec.totprice)}</td>
@@ -301,6 +321,19 @@ export default function ReceiptsPage() {
                           <td className="receipts-mono">{rec.cashname}</td>
                           <td>{rec.details}</td>
                           <td>{rec.branchname}</td>
+                          <td>
+                            {rec.status !== 'closed' && rec.priority_ivnum && (
+                              <button
+                                className="receipts-btn receipts-btn-approve"
+                                onClick={() => closeReceipt(rec)}
+                                disabled={closing === rec.id}
+                                title="הפעל פרוצדורת CLOSETIV בפריוריטי"
+                              >
+                                {closing === rec.id ? 'סוגר...' : 'סגור קבלה'}
+                              </button>
+                            )}
+                            {rec.status === 'closed' && <span style={{ color: '#16a34a', fontSize: '0.85em' }}>✓ סגורה</span>}
+                          </td>
                         </tr>
                       ))}
                     </tbody>

@@ -4568,6 +4568,56 @@ def receipts_reject(receipt_id):
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/receipts/<receipt_id>/close", methods=["POST"])
+def receipts_close(receipt_id):
+    """Close a Priority draft receipt via Web SDK (CLOSETIV procedure).
+
+    Requires node + priority-web-sdk installed in backend/close_receipt/.
+    The receipt must already be approved (have a priority_ivnum).
+    """
+    import subprocess
+    try:
+        rec = receipts_db.get_receipt(receipt_id)
+        if not rec:
+            return jsonify({"ok": False, "error": "קבלה לא נמצאה"}), 404
+
+        priority_ivnum = rec.get("priority_ivnum")
+        if not priority_ivnum:
+            return jsonify({"ok": False, "error": "הקבלה עוד לא נשלחה לפריוריטי"}), 400
+
+        script_dir = os.path.join(os.path.dirname(__file__), "close_receipt")
+        result = subprocess.run(
+            ["node", "close_receipt.js", priority_ivnum],
+            cwd=script_dir,
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
+
+        stdout = result.stdout.strip()
+        stderr = result.stderr.strip()
+        if stderr:
+            app.logger.info("close_receipt stderr: %s", stderr)
+
+        try:
+            data = json.loads(stdout) if stdout else {}
+        except Exception:
+            data = {}
+
+        if result.returncode != 0 or not data.get("ok"):
+            err = data.get("error") or stderr or "שגיאה לא ידועה"
+            return jsonify({"ok": False, "error": err}), 500
+
+        # Mark receipt as closed in local DB
+        receipts_db._save_receipt({**rec, "status": "closed", "closed_at": _now_il().isoformat()})
+        return jsonify({"ok": True, "ivnum": priority_ivnum})
+
+    except subprocess.TimeoutExpired:
+        return jsonify({"ok": False, "error": "Timeout — בדוק בפריוריטי ידנית"}), 504
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 if __name__ == "__main__":
     print("Urban Group Backend API")
     print(f"Priority Demo: {PRIORITY_URL_DEMO}")
