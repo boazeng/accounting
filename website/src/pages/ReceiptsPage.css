@@ -180,13 +180,13 @@
 
 .receipts-amount-plus {
   font-weight: 600;
-  color: #dc2626;
+  color: #16a34a;
   white-space: nowrap;
 }
 
 .receipts-amount-minus {
   font-weight: 600;
-  color: #374151;
+  color: #dc2626;
   white-space: nowrap;
 }
 

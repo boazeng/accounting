@@ -17,9 +17,13 @@ function fmtAmount(n) {
 
 const ACTION_STYLES = {
   receipt:  { label: 'הפקת קבלה',          color: '#16a34a', bg: '#f0fdf4' },
-  journal:  { label: 'רישום פקודת התאמה',  color: '#d97706', bg: '#fffbeb' },
-  transfer: { label: 'הפקת העברה בנקאית',  color: '#2563eb', bg: '#eff6ff' },
+  journal:  { label: 'רישום פקודת התאמה',  color: '#b45309', bg: '#fff7ed' },
+  transfer: { label: 'הפקת העברה בנקאית',  color: '#1d4ed8', bg: '#eff6ff' },
 }
+
+// Options available per direction in the action queue
+const PLUS_ACTIONS  = ['receipt']
+const MINUS_ACTIONS = ['journal', 'transfer']
 
 function AmountCell({ sum1, direction }) {
   const dir = direction || ''
@@ -306,15 +310,21 @@ export default function ReceiptsPage() {
                           <td><AmountCell sum1={item.sum1} direction={item.direction} /></td>
                           <td>{item.branchname}</td>
                           <td>
-                            <select
-                              className="receipts-action-select"
-                              value={item.action}
-                              onChange={e => updateQueueItemAction(item.id, e.target.value)}
-                            >
-                              {Object.entries(ACTION_STYLES).map(([val, s]) => (
-                                <option key={val} value={val}>{s.label}</option>
-                              ))}
-                            </select>
+                            {item.direction === '+' ? (
+                              <span className="receipts-action-label" style={{ color: ACTION_STYLES.receipt.color, background: ACTION_STYLES.receipt.bg }}>
+                                {ACTION_STYLES.receipt.label}
+                              </span>
+                            ) : (
+                              <select
+                                className="receipts-action-select"
+                                value={item.action}
+                                onChange={e => updateQueueItemAction(item.id, e.target.value)}
+                              >
+                                {MINUS_ACTIONS.map(val => (
+                                  <option key={val} value={val}>{ACTION_STYLES[val].label}</option>
+                                ))}
+                              </select>
+                            )}
                           </td>
                           <td className="receipts-actions">
                             <button
@@ -394,7 +404,10 @@ export default function ReceiptsPage() {
                     <tbody>
                       {bankTxns.filter(t => !t.already_queued).map(txn => {
                         const action = txn.suggested_action || 'journal'
-                        const s = ACTION_STYLES[action] || ACTION_STYLES.journal
+                        const s      = ACTION_STYLES[action] || ACTION_STYLES.journal
+                        const isPlus = txn.direction === '+'
+                        const btnColor = isPlus ? '#16a34a' : '#dc2626'
+                        const btnBg    = isPlus ? '#f0fdf4' : '#fef2f2'
                         return (
                           <tr key={txn.FNCNUM}>
                             <td>{fmt(txn.CURDATE)}</td>
@@ -406,7 +419,7 @@ export default function ReceiptsPage() {
                             <td>
                               <button
                                 className="receipts-action-btn"
-                                style={{ color: s.color, background: s.bg, borderColor: s.color + '55' }}
+                                style={{ color: btnColor, background: btnBg, borderColor: btnColor + '55' }}
                                 onClick={() => addToActionQueue(txn)}
                                 title="לחץ להעברה לתור ביצוע"
                               >

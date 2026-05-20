@@ -4379,14 +4379,14 @@ _TXN_ACTION_MAP = {
 }
 
 _TXN_DIRECTION_MAP = {
-    "receipt":      "+",
-    "fee":          "-",
-    "transfer":     "",
-    "intercompany": "",
-    "internal":     "",
+    "receipt":      "+",   # money IN to bank
+    "fee":          "-",   # money OUT of bank
+    "transfer":     "-",
+    "intercompany": "-",
+    "internal":     "-",
     "supplier":     "-",
-    "loan":         "",
-    "other":        "",
+    "loan":         "-",
+    "other":        "-",
 }
 
 
