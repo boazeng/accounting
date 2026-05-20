@@ -4315,14 +4315,15 @@ def receipts_save_cashname_map():
 
 @app.route("/api/receipts/bank-transactions", methods=["GET"])
 def receipts_bank_transactions():
-    """List unmatched bank transactions (FNCTRANS type 'הת') that may need a receipt.
+    """List unmatched bank transactions (FNCTRANS type 'הת') that need a receipt.
 
-    'הת' = תנועת התאמה = bank statement import lines.
-    IVRECONDATE=null means not yet matched to an accounting entry in Priority.
+    Cross-references with finalized receipts (FNCPATNAME='ק') to exclude bank lines
+    that are already reconciled in Priority. Receipt entries have bank=ACCNAME1,
+    customer=ACCNAME2; bank statement lines have customer=ACCNAME1, bank=ACCNAME2.
 
     Query params:
       days   - how many days back to look (default 90)
-      branch - filter by branch (e.g. '026'). ACCNAME2 ends with '-{branch}'.
+      branch - filter by branch (e.g. '026')
     """
     try:
         days = int(request.args.get("days", 180))
@@ -4330,26 +4331,67 @@ def receipts_bank_transactions():
         from datetime import timedelta
         since_date = (_now_il() - timedelta(days=days)).strftime("%Y-%m-%dT00:00:00Z")
 
-        flt = f"FNCPATNAME eq 'הת' and CURDATE ge {since_date}"
-        if branch and branch != "all":
-            # ACCNAME2 format: "4021-026" — suffix is the branch number
-            branch_safe = branch.replace("'", "")
-            flt += f" and endswith(ACCNAME2,'-{branch_safe}')"
+        branch_safe = branch.replace("'", "") if branch and branch != "all" else ""
+
+        flt = f"FNCPATNAME eq 'הת' and CURDATE ge {since_date} and SUM1 gt 0"
+        if branch_safe:
+            flt += f" and BRANCHNAME eq '{branch_safe}'"
 
         r_fnc = http_requests.get(
             f"{_prio_url()}/FNCTRANS"
             f"?$filter={flt}"
-            "&$select=FNCNUM,CURDATE,ACCNAME1,ACCDES1,ACCNAME2,ACCDES2,SUM1,DETAILS,BRANCHNAME,IVRECONDATE"
+            "&$select=FNCNUM,CURDATE,ACCNAME1,ACCDES1,ACCNAME2,ACCDES2,SUM1,DETAILS,BRANCHNAME"
             "&$orderby=CURDATE desc&$top=500",
             headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=30,
         )
         r_fnc.raise_for_status()
         all_txns = r_fnc.json().get("value", [])
 
-        # Keep only unmatched (IVRECONDATE not set) and positive amounts
+        def _is_bank_account(code):
+            seg = (code or "").split("-")[0]
+            return len(seg) == 4 and seg.startswith("40") and seg.isdigit()
+
+        def _is_customer_account(code):
+            seg = (code or "").split("-")[0]
+            # Receipt-eligible clients: 5+ digit codes starting with "5" (50xxx, 51xxx…)
+            # Excludes bank accounts (40xx), inter-company (7xxx, 3xxx),
+            # suppliers (60xxx+), expense accounts (620-, 400-, 205-)
+            return seg.isdigit() and len(seg) >= 5 and seg[0] == "5"
+
+        # Build set of (customer, bank, amount) for finalized receipts (ק) in Priority.
+        # Receipt journal entries: ACCNAME1=bank, ACCNAME2=customer (opposite of הת lines).
+        # Any הת line matching a ק entry is already reconciled — skip it.
+        receipted_set = set()
+        try:
+            r_flt = f"FNCPATNAME eq 'ק' and CURDATE ge {since_date} and SUM1 gt 0"
+            if branch_safe:
+                r_flt += f" and BRANCHNAME eq '{branch_safe}'"
+            r_rec = http_requests.get(
+                f"{_prio_url()}/FNCTRANS"
+                f"?$filter={r_flt}"
+                "&$select=ACCNAME1,ACCNAME2,SUM1&$top=1000",
+                headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=30,
+            )
+            if r_rec.status_code == 200:
+                for rec in r_rec.json().get("value", []):
+                    bank = rec.get("ACCNAME1", "")
+                    cust = rec.get("ACCNAME2", "")
+                    amt = round(float(rec.get("SUM1") or 0), 2)
+                    receipted_set.add((cust, bank, amt))
+        except Exception:
+            pass  # if this query fails, fall through without filtering
+
+        # Keep only customer-payment lines not already receipted in Priority.
+        # ACCNAME1 = customer account, ACCNAME2 = bank account
         txns = [
             t for t in all_txns
-            if not t.get("IVRECONDATE") and (t.get("SUM1") or 0) > 0
+            if _is_customer_account(t.get("ACCNAME1", ""))
+            and _is_bank_account(t.get("ACCNAME2", ""))
+            and (
+                t.get("ACCNAME1", ""),
+                t.get("ACCNAME2", ""),
+                round(float(t.get("SUM1") or 0), 2),
+            ) not in receipted_set
         ]
 
         for txn in txns:

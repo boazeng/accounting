@@ -95,5 +95,5 @@ def _save_receipt(updated_rec):
 
 
 def is_duplicate(fncnum):
-    return any(r.get("fncnum") == fncnum and r.get("status") in ("pending", "approved")
+    return any(r.get("fncnum") == fncnum and r.get("status") in ("pending", "approved", "closed")
                for r in _load())

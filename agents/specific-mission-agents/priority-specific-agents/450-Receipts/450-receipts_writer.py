@@ -158,22 +158,39 @@ def _parse_err(e):
 
 
 def main():
-    print("=" * 60)
-    print("  450-Receipts Writer - Priority Cloud")
-    print("=" * 60)
-    print()
-    print(f"Priority URL: {PRIORITY_URL}")
-    print()
+    import argparse, json as _json
+    parser = argparse.ArgumentParser(description="Create a Priority receipt draft")
+    parser.add_argument("--custname",   required=True,  help="Customer code, e.g. 50440")
+    parser.add_argument("--branch",     required=True,  help="Branch code, e.g. 026")
+    parser.add_argument("--amount",     required=True,  type=float, help="Total amount")
+    parser.add_argument("--date",       required=True,  help="Receipt date YYYY-MM-DD")
+    parser.add_argument("--cashname",   required=True,  help="Cash/bank account, e.g. 026-201")
+    parser.add_argument("--details",    default="",     help="Free-text description")
+    parser.add_argument("--fncnum",     default=None,   help="Bank transaction reference number")
+    parser.add_argument("--json",       action="store_true", help="Output result as JSON to stdout")
+    args = parser.parse_args()
+
+    if not args.json:
+        print("=" * 60)
+        print("  450-Receipts Writer - Priority Cloud")
+        print("=" * 60)
+        print(f"Priority URL: {PRIORITY_URL}")
+        print()
 
     result = create_receipt(
-        custname="50904",
-        ivdate="2026-05-19",
-        totprice=20.00,
-        details="נסיון",
-        cashname="026-201",
-        branchname="026",
-        fncnum="99999",   # FNCNUM לדוגמה
+        custname=args.custname,
+        ivdate=args.date,
+        totprice=args.amount,
+        details=args.details,
+        cashname=args.cashname,
+        branchname=args.branch,
+        fncnum=args.fncnum,
     )
+
+    if args.json:
+        import sys as _sys
+        _sys.stdout.write(_json.dumps(result, ensure_ascii=False))
+        return
 
     print()
     if result["ok"]:
