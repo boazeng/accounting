@@ -25,6 +25,7 @@ export default function ReceiptsPage() {
   const [bankTxns, setBankTxns] = useState([])
   const [pending, setPending] = useState([])
   const [approved, setApproved] = useState([])
+  const [actionQueue, setActionQueue] = useState([])
   const [cashAccounts, setCashAccounts] = useState({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -67,10 +68,11 @@ export default function ReceiptsPage() {
       const txnUrl = branchParam && branchParam !== 'all'
         ? `${API}/api/receipts/bank-transactions?days=${daysParam}&branch=${encodeURIComponent(branchParam)}`
         : `${API}/api/receipts/bank-transactions?days=${daysParam}`
-      const [bRes, p, a, c] = await Promise.all([
+      const [bRes, p, a, aq, c] = await Promise.all([
         fetch(txnUrl).then(r => r.json()),
         fetch(`${API}/api/receipts/pending`).then(r => r.json()),
         fetch(`${API}/api/receipts/approved`).then(r => r.json()),
+        fetch(`${API}/api/receipts/action-queue`).then(r => r.json()),
         fetch(`${API}/api/receipts/cash-accounts`).then(r => r.json()),
       ])
       if (bRes.ok) {
@@ -84,6 +86,7 @@ export default function ReceiptsPage() {
       }
       if (p.ok) setPending(p.receipts || [])
       if (a.ok) setApproved(a.receipts || [])
+      if (aq.ok) setActionQueue(aq.items || [])
       if (c.ok) setCashAccounts(c.byBranch || {})
     } catch (e) {
       setError('שגיאה בטעינת נתונים: ' + e.message)
@@ -229,6 +232,68 @@ export default function ReceiptsPage() {
       alert('שגיאה: ' + e.message)
     } finally {
       setProcessing(null)
+    }
+  }
+
+  async function addToActionQueue(txn) {
+    try {
+      const resp = await fetch(`${API}/api/receipts/action-queue/add`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fncnum: txn.FNCNUM,
+          curdate: txn.CURDATE,
+          details: txn.DETAILS,
+          accname1: txn.ACCNAME1,
+          accdes1: txn.ACCDES1,
+          accname2: txn.ACCNAME2,
+          accdes2: txn.ACCDES2,
+          sum1: txn.SUM1,
+          direction: txn.direction,
+          branchname: txn.BRANCHNAME,
+          action: txn.suggested_action || 'journal',
+        }),
+      })
+      const data = await resp.json()
+      if (!data.ok) throw new Error(data.error || 'שגיאה')
+      await loadAll()
+    } catch (e) {
+      alert('שגיאה: ' + e.message)
+    }
+  }
+
+  async function updateQueueItemAction(itemId, action) {
+    try {
+      await fetch(`${API}/api/receipts/action-queue/${itemId}/set-action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      })
+      setActionQueue(prev => prev.map(i => i.id === itemId ? { ...i, action } : i))
+    } catch (e) {
+      alert('שגיאה: ' + e.message)
+    }
+  }
+
+  async function markActionDone(item) {
+    try {
+      const resp = await fetch(`${API}/api/receipts/action-queue/${item.id}/done`, { method: 'POST' })
+      const data = await resp.json()
+      if (!data.ok) throw new Error(data.error || 'שגיאה')
+      await loadAll()
+    } catch (e) {
+      alert('שגיאה: ' + e.message)
+    }
+  }
+
+  async function removeFromActionQueue(item) {
+    try {
+      const resp = await fetch(`${API}/api/receipts/action-queue/${item.id}/remove`, { method: 'POST' })
+      const data = await resp.json()
+      if (!data.ok) throw new Error(data.error || 'שגיאה')
+      await loadAll()
+    } catch (e) {
+      alert('שגיאה: ' + e.message)
     }
   }
 
@@ -392,6 +457,77 @@ export default function ReceiptsPage() {
               </section>
             )}
 
+            {/* ── Section 1c: Action queue (non-receipt transactions pending treatment) ── */}
+            {actionQueue.length > 0 && (
+              <section className="receipts-section">
+                <div className="receipts-section-header">
+                  <h2>פעולות לביצוע</h2>
+                  <span className="receipts-badge" style={{ background: '#d97706' }}>{actionQueue.length}</span>
+                </div>
+                <p className="receipts-hint">תנועות שזוהו וממתינות לביצוע — בצע בפריוריטי ולחץ "בוצע"</p>
+                <div className="receipts-table-wrap">
+                  <table className="receipts-table">
+                    <thead>
+                      <tr>
+                        <th>תאריך</th>
+                        <th>תיאור</th>
+                        <th>חשבון</th>
+                        <th>סכום</th>
+                        <th>סניף</th>
+                        <th>פעולה</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {actionQueue.map(item => {
+                        const style = ACTION_STYLES[item.action] || ACTION_STYLES.journal
+                        const dir = item.direction || ''
+                        return (
+                          <tr key={item.id}>
+                            <td>{fmt(item.curdate)}</td>
+                            <td>{item.details}</td>
+                            <td title={item.accname1} className="receipts-mono">{item.accdes1 || item.accname1}</td>
+                            <td>
+                              <span className={dir === '+' ? 'receipts-amount-plus' : dir === '-' ? 'receipts-amount-minus' : 'receipts-amount'}>
+                                {dir === '+' ? '+ ' : dir === '-' ? '- ' : ''}{fmtAmount(item.sum1)}
+                              </span>
+                            </td>
+                            <td>{item.branchname}</td>
+                            <td>
+                              <select
+                                className="receipts-action-select"
+                                value={item.action}
+                                onChange={e => updateQueueItemAction(item.id, e.target.value)}
+                              >
+                                {Object.entries(ACTION_STYLES).map(([val, s]) => (
+                                  <option key={val} value={val}>{s.label}</option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="receipts-actions">
+                              <button
+                                className="receipts-btn receipts-btn-approve"
+                                onClick={() => markActionDone(item)}
+                              >
+                                ✓ בוצע
+                              </button>
+                              <button
+                                className="receipts-btn receipts-btn-cancel"
+                                onClick={() => removeFromActionQueue(item)}
+                                title="החזר לרשימת התנועות"
+                              >
+                                ביטול
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
+
             {/* ── Section 2: Unmatched bank transactions ── */}
             <section className="receipts-section">
               <div className="receipts-section-header">
@@ -470,9 +606,20 @@ export default function ReceiptsPage() {
                             <td className="receipts-small" title={txn.ACCNAME2}>{txn.ACCDES2 || txn.ACCNAME2}</td>
                             <td>{txn.BRANCHNAME}</td>
                             <td>
-                              <span className="receipts-action-label" style={{ color: style.color, background: style.bg }}>
-                                {style.label}
-                              </span>
+                              {action === 'receipt' ? (
+                                <span className="receipts-action-label" style={{ color: style.color, background: style.bg }}>
+                                  {style.label}
+                                </span>
+                              ) : (
+                                <button
+                                  className="receipts-action-btn"
+                                  style={{ color: style.color, background: style.bg, borderColor: style.color + '55' }}
+                                  onClick={() => addToActionQueue(txn)}
+                                  title="לחץ להעברה לתור ביצוע"
+                                >
+                                  {style.label} ←
+                                </button>
+                              )}
                             </td>
                             <td>
                               {action === 'receipt' && (

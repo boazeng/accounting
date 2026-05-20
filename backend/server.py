@@ -230,6 +230,18 @@ except Exception as _rec_db_err:
     logger.error(f"receipts_db load FAILED: {_rec_db_err}")
     receipts_db = None
 
+# Load action-queue database module
+try:
+    aq_db_path = PROJECT_ROOT / "database" / "receipts" / "action_queue_db.py"
+    spec_aq_db = importlib.util.spec_from_file_location("action_queue_db", aq_db_path)
+    action_queue_db = importlib.util.module_from_spec(spec_aq_db)
+    sys.modules["action_queue_db"] = action_queue_db
+    spec_aq_db.loader.exec_module(action_queue_db)
+    logger.info(f"action_queue_db loaded from {aq_db_path}")
+except Exception as _aq_db_err:
+    logger.error(f"action_queue_db load FAILED: {_aq_db_err}")
+    action_queue_db = None
+
 # Load cash-flow (תזרים) database module
 cf_db_path = PROJECT_ROOT / "database" / "cashflow" / "cashflow_db.py"
 spec_cf_db = importlib.util.spec_from_file_location("cashflow_db", cf_db_path)
@@ -4458,6 +4470,7 @@ def receipts_bank_transactions():
             pass
 
         processed_ids = _load_processed_txns()
+        action_queued_ids = action_queue_db.get_fncnums() if action_queue_db else set()
 
         txns = []
         for t in bank_txns:
@@ -4465,6 +4478,10 @@ def receipts_bank_transactions():
 
             # Manually marked as processed
             if fncnum in processed_ids:
+                continue
+
+            # In the action queue (non-receipt actions pending)
+            if fncnum in action_queued_ids:
                 continue
 
             # Receipt type: skip if finalized receipt already exists in Priority
@@ -4496,6 +4513,81 @@ def mark_bank_txn_processed():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
+
+# ── Action queue (non-receipt bank transactions pending treatment) ──────────
+
+@app.route("/api/receipts/action-queue", methods=["GET"])
+def get_action_queue():
+    try:
+        return jsonify({"ok": True, "items": action_queue_db.list_pending()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/action-queue/add", methods=["POST"])
+def add_to_action_queue():
+    try:
+        d = request.get_json() or {}
+        item = action_queue_db.add_item(
+            fncnum=str(d.get("fncnum", "")),
+            curdate=d.get("curdate", ""),
+            details=d.get("details", ""),
+            accname1=d.get("accname1", ""),
+            accdes1=d.get("accdes1", ""),
+            accname2=d.get("accname2", ""),
+            accdes2=d.get("accdes2", ""),
+            sum1=d.get("sum1", 0),
+            direction=d.get("direction", ""),
+            branchname=d.get("branchname", ""),
+            action=d.get("action", "journal"),
+        )
+        if item is None:
+            return jsonify({"ok": False, "error": "כבר בתור"}), 409
+        return jsonify({"ok": True, "item": item})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/action-queue/<item_id>/set-action", methods=["POST"])
+def set_action_queue_action(item_id):
+    try:
+        d = request.get_json() or {}
+        action = d.get("action", "journal")
+        item = action_queue_db.set_action(item_id, action)
+        if item is None:
+            return jsonify({"ok": False, "error": "לא נמצא"}), 404
+        return jsonify({"ok": True, "item": item})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/action-queue/<item_id>/done", methods=["POST"])
+def done_action_queue(item_id):
+    """Mark item as done: remove from queue + add FNCNUM to processed list."""
+    try:
+        items = action_queue_db.list_pending()
+        target = next((i for i in items if i["id"] == item_id), None)
+        if target is None:
+            return jsonify({"ok": False, "error": "לא נמצא"}), 404
+        action_queue_db.mark_done(item_id)
+        processed = _load_processed_txns()
+        processed.add(target["fncnum"])
+        _save_processed_txns(processed)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/action-queue/<item_id>/remove", methods=["POST"])
+def remove_from_action_queue(item_id):
+    """Return item to unmatched list."""
+    try:
+        result = action_queue_db.remove_item(item_id)
+        if result is None:
+            return jsonify({"ok": False, "error": "לא נמצא"}), 404
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/api/receipts/<receipt_id>/delete", methods=["DELETE", "POST"])

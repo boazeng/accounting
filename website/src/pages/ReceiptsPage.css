@@ -199,6 +199,34 @@
   white-space: nowrap;
 }
 
+.receipts-action-btn {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 12px;
+  border: 1px solid;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.receipts-action-btn:hover { opacity: 0.75; }
+
+.receipts-action-select {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  background: #fff;
+  cursor: pointer;
+  color: #374151;
+  min-width: 180px;
+}
+.receipts-action-select:focus {
+  outline: none;
+  border-color: #6c5ce7;
+}
+
 .receipts-actions {
   display: flex;
   gap: 8px;

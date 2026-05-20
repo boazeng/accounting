@@ -1,0 +1,84 @@
+# -*- coding: utf-8 -*-
+import json
+import uuid
+from datetime import datetime
+from pathlib import Path
+
+_DB_FILE = Path(__file__).parent / "action_queue.json"
+
+
+def _load():
+    if not _DB_FILE.exists():
+        return []
+    try:
+        return json.loads(_DB_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def _save(records):
+    _DB_FILE.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def list_pending():
+    return [r for r in _load() if r.get("status") == "pending"]
+
+
+def get_fncnums():
+    """Return set of FNCNUMs currently in the pending queue."""
+    return {r["fncnum"] for r in _load() if r.get("status") == "pending"}
+
+
+def add_item(fncnum, curdate, details, accname1, accdes1, accname2, accdes2, sum1, direction, branchname, action):
+    records = _load()
+    if any(r.get("fncnum") == fncnum and r.get("status") == "pending" for r in records):
+        return None  # already queued
+    item = {
+        "id": str(uuid.uuid4()),
+        "fncnum": fncnum,
+        "curdate": curdate,
+        "details": details,
+        "accname1": accname1,
+        "accdes1": accdes1,
+        "accname2": accname2,
+        "accdes2": accdes2,
+        "sum1": sum1,
+        "direction": direction,
+        "branchname": branchname,
+        "action": action,
+        "status": "pending",
+        "created_at": datetime.now().isoformat(),
+    }
+    records.append(item)
+    _save(records)
+    return item
+
+
+def set_action(item_id, action):
+    records = _load()
+    for r in records:
+        if r.get("id") == item_id:
+            r["action"] = action
+            _save(records)
+            return r
+    return None
+
+
+def mark_done(item_id):
+    records = _load()
+    for r in records:
+        if r.get("id") == item_id:
+            r["status"] = "done"
+            r["done_at"] = datetime.now().isoformat()
+            _save(records)
+            return r
+    return None
+
+
+def remove_item(item_id):
+    records = _load()
+    new_records = [r for r in records if r.get("id") != item_id]
+    if len(new_records) == len(records):
+        return None
+    _save(new_records)
+    return item_id
