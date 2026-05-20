@@ -97,3 +97,12 @@ def _save_receipt(updated_rec):
 def is_duplicate(fncnum):
     return any(r.get("fncnum") == fncnum and r.get("status") in ("pending", "approved", "closed")
                for r in _load())
+
+
+def delete_receipt(receipt_id):
+    records = _load()
+    new_records = [r for r in records if r.get("id") != receipt_id]
+    if len(new_records) == len(records):
+        return None
+    _save(new_records)
+    return receipt_id

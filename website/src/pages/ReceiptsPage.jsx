@@ -15,16 +15,11 @@ function fmtAmount(n) {
   return Number(n).toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₪'
 }
 
-const TXN_TYPES = {
-  receipt:      { label: 'תקבול לקוח',     color: '#16a34a', action: 'queue' },
-  fee:          { label: 'עמלה / הוצאה',   color: '#d97706', action: 'process' },
-  transfer:     { label: 'העברה בנקאית',   color: '#2563eb', action: 'process' },
-  intercompany: { label: 'חו"ז',            color: '#7c3aed', action: 'process' },
-  internal:     { label: 'פנימי',           color: '#64748b', action: 'process' },
-  supplier:     { label: 'ספק',             color: '#b45309', action: 'process' },
-  loan:         { label: 'הלוואה',          color: '#0891b2', action: 'process' },
-  other:        { label: 'אחר',             color: '#6b7280', action: 'process' },
-}
+const ACTION_OPTIONS = [
+  { value: 'receipt',  label: 'הפקת קבלה' },
+  { value: 'journal',  label: 'רישום פקודת התאמה' },
+  { value: 'transfer', label: 'הפקת העברה בנקאית' },
+]
 
 export default function ReceiptsPage() {
   const [bankTxns, setBankTxns] = useState([])
@@ -61,6 +56,8 @@ export default function ReceiptsPage() {
   const [branchFilter, setBranchFilter] = useState('all')
   const [allBranches, setAllBranches] = useState([])
   const [processing, setProcessing] = useState(null)  // fncnum being marked
+  const [rowActions, setRowActions] = useState({})     // fncnum → action override
+  const [deleting, setDeleting] = useState(null)       // receipt id being deleted
 
   const loadAll = useCallback(async (d, b) => {
     const daysParam = d ?? days
@@ -236,6 +233,26 @@ export default function ReceiptsPage() {
     }
   }
 
+  async function deleteReceipt(rec) {
+    const label = rec.priority_ivnum ? ` (${rec.priority_ivnum})` : ''
+    if (!window.confirm(`למחוק את הקבלה של ${rec.accdes}${label} מהמערכת?\nאם הקבלה נשלחה לפריוריטי יש למחוק אותה שם ידנית.`)) return
+    setDeleting(rec.id)
+    try {
+      const resp = await fetch(`${API}/api/receipts/${rec.id}/delete`, { method: 'POST' })
+      const data = await resp.json()
+      if (!data.ok) throw new Error(data.error || 'שגיאה')
+      await loadAll()
+    } catch (e) {
+      alert('שגיאה במחיקה: ' + e.message)
+    } finally {
+      setDeleting(null)
+    }
+  }
+
+  function getRowAction(txn) {
+    return rowActions[txn.FNCNUM] ?? txn.suggested_action ?? 'journal'
+  }
+
   const branchOptions = modal ? (cashAccounts[modal.txn.BRANCHNAME] || Object.values(cashAccounts).flat()) : []
 
   return (
@@ -350,7 +367,7 @@ export default function ReceiptsPage() {
                           <td className="receipts-mono">{rec.cashname}</td>
                           <td>{rec.details}</td>
                           <td>{rec.branchname}</td>
-                          <td>
+                          <td className="receipts-actions">
                             {rec.status !== 'closed' && rec.priority_ivnum && (
                               <button
                                 className="receipts-btn receipts-btn-approve"
@@ -362,6 +379,14 @@ export default function ReceiptsPage() {
                               </button>
                             )}
                             {rec.status === 'closed' && <span style={{ color: '#16a34a', fontSize: '0.85em' }}>✓ סגורה</span>}
+                            <button
+                              className="receipts-btn receipts-btn-reject"
+                              onClick={() => deleteReceipt(rec)}
+                              disabled={deleting === rec.id}
+                              title="מחק מהמערכת המקומית (אם נשלחה לפריוריטי — מחק שם ידנית)"
+                            >
+                              {deleting === rec.id ? '...' : 'מחק'}
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -422,33 +447,44 @@ export default function ReceiptsPage() {
                     <thead>
                       <tr>
                         <th>תאריך</th>
-                        <th>סוג</th>
                         <th>תיאור תנועה</th>
                         <th>חשבון</th>
                         <th>סכום</th>
                         <th>בנק</th>
                         <th>סניף</th>
+                        <th>פעולה מוצעת</th>
                         <th></th>
                       </tr>
                     </thead>
                     <tbody>
                       {bankTxns.filter(t => !t.already_queued).map(txn => {
-                        const typeInfo = TXN_TYPES[txn.txn_type] || TXN_TYPES.other
+                        const action = getRowAction(txn)
+                        const dir = txn.direction || ''
                         return (
                           <tr key={txn.FNCNUM}>
                             <td>{fmt(txn.CURDATE)}</td>
-                            <td>
-                              <span className="receipts-type-badge" style={{ background: typeInfo.color }}>
-                                {typeInfo.label}
-                              </span>
-                            </td>
                             <td>{txn.DETAILS}</td>
                             <td title={txn.ACCNAME1} className="receipts-mono">{txn.ACCDES1 || txn.ACCNAME1}</td>
-                            <td className="receipts-amount">{fmtAmount(txn.SUM1)}</td>
+                            <td>
+                              <span className={dir === '+' ? 'receipts-amount-plus' : dir === '-' ? 'receipts-amount-minus' : 'receipts-amount'}>
+                                {dir === '+' ? '+ ' : dir === '-' ? '- ' : ''}{fmtAmount(txn.SUM1)}
+                              </span>
+                            </td>
                             <td className="receipts-small" title={txn.ACCNAME2}>{txn.ACCDES2 || txn.ACCNAME2}</td>
                             <td>{txn.BRANCHNAME}</td>
                             <td>
-                              {typeInfo.action === 'queue' ? (
+                              <select
+                                className="receipts-action-select"
+                                value={action}
+                                onChange={e => setRowActions(prev => ({ ...prev, [txn.FNCNUM]: e.target.value }))}
+                              >
+                                {ACTION_OPTIONS.map(opt => (
+                                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                ))}
+                              </select>
+                            </td>
+                            <td>
+                              {action === 'receipt' ? (
                                 <button
                                   className="receipts-btn receipts-btn-queue"
                                   onClick={() => openModal(txn)}
@@ -460,9 +496,9 @@ export default function ReceiptsPage() {
                                   className="receipts-btn receipts-btn-process"
                                   onClick={() => markProcessed(txn)}
                                   disabled={processing === txn.FNCNUM}
-                                  title="סמן כמטופל — התנועה תוסר מהתור לאחר ביצוע ידני בפריוריטי"
+                                  title="סמן כבוצע — התנועה תוסר לאחר טיפול בפריוריטי"
                                 >
-                                  {processing === txn.FNCNUM ? '...' : '✓ מטופל'}
+                                  {processing === txn.FNCNUM ? '...' : '✓ בוצע'}
                                 </button>
                               )}
                             </td>

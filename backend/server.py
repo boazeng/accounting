@@ -4355,6 +4355,29 @@ def _bank_txn_type(accname1):
     return "other"
 
 
+_TXN_ACTION_MAP = {
+    "receipt":      "receipt",   # הפקת קבלה
+    "fee":          "journal",   # רישום פקודת התאמה
+    "transfer":     "transfer",  # הפקת העברה בנקאית
+    "intercompany": "journal",
+    "internal":     "transfer",
+    "supplier":     "transfer",
+    "loan":         "journal",
+    "other":        "journal",
+}
+
+_TXN_DIRECTION_MAP = {
+    "receipt":      "+",
+    "fee":          "-",
+    "transfer":     "",
+    "intercompany": "",
+    "internal":     "",
+    "supplier":     "-",
+    "loan":         "",
+    "other":        "",
+}
+
+
 @app.route("/api/receipts/bank-transactions", methods=["GET"])
 def receipts_bank_transactions():
     """All unmatched bank-statement FNCTRANS('הת') entries across all types.
@@ -4408,7 +4431,10 @@ def receipts_bank_transactions():
 
         # Classify each transaction
         for t in bank_txns:
-            t["txn_type"] = _bank_txn_type(t.get("ACCNAME1", ""))
+            ttype = _bank_txn_type(t.get("ACCNAME1", ""))
+            t["txn_type"] = ttype
+            t["suggested_action"] = _TXN_ACTION_MAP.get(ttype, "journal")
+            t["direction"] = _TXN_DIRECTION_MAP.get(ttype, "")
 
         # Build cross-reference set for receipt type:
         # finalized receipts (ק) have bank=ACCNAME1, customer=ACCNAME2 (opposite of הת).
@@ -4470,6 +4496,20 @@ def mark_bank_txn_processed():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
+
+
+@app.route("/api/receipts/<receipt_id>/delete", methods=["DELETE", "POST"])
+def delete_receipt_endpoint(receipt_id):
+    """Remove a receipt from the local queue (approved/pending/closed).
+    If the receipt has a Priority draft ivnum (status='approved'), the caller
+    should also delete it from Priority manually — we only remove it locally."""
+    try:
+        result = receipts_db.delete_receipt(receipt_id)
+        if result is None:
+            return jsonify({"ok": False, "error": "קבלה לא נמצאה"}), 404
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/api/receipts/cash-accounts", methods=["GET"])
