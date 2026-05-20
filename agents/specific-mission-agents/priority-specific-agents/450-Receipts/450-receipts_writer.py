@@ -104,7 +104,7 @@ def create_receipt(custname, ivdate, totprice, details, cashname, branchname, fn
                 "CASHNAME":    cashname,
                 "BRANCHNAME":  branchname,
                 "PAYDATE":     ivdate_str,
-                "CASHPAYMENT": amount,
+                "CASHPAYMENT": 0,  # 0 for bank transfer — amount goes in TPAYMENT2_SUBFORM
             },
         )
         r1.raise_for_status()

@@ -22,7 +22,7 @@ if os.environ.get("IS_LAMBDA") != "true":
 logger = logging.getLogger("urbangroup.LLM2000")
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
+CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-haiku-4-5-20251001")
 
 SYSTEM_PROMPT = """You are an expert at reading Israeli supplier invoices (חשבוניות ספק).
 You receive images of PDF pages. Each page may be a separate invoice, or multiple pages may belong to the same invoice.
@@ -89,6 +89,7 @@ def analyze_invoice_images(images):
             }
         })
 
+    verify_ssl = os.getenv("REQUESTS_VERIFY_SSL", "true").lower() != "false"
     resp = requests.post(
         "https://api.anthropic.com/v1/messages",
         headers={
@@ -103,6 +104,7 @@ def analyze_invoice_images(images):
             "messages": [{"role": "user", "content": content}],
         },
         timeout=60,
+        verify=verify_ssl,
     )
     resp.raise_for_status()
 
