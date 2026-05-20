@@ -4379,14 +4379,14 @@ _TXN_ACTION_MAP = {
 }
 
 _TXN_DIRECTION_MAP = {
-    "receipt":      "-",   # חובה בחשבון הבנק (כסף נכנס) → אדום
-    "fee":          "+",   # זכות בחשבון הבנק (כסף יוצא) → ירוק
-    "transfer":     "+",
-    "intercompany": "+",
-    "internal":     "+",
-    "supplier":     "+",
-    "loan":         "+",
-    "other":        "+",
+    "receipt":      "+",   # כסף נכנס לבנק → ירוק
+    "fee":          "-",   # כסף יוצא מהבנק → אדום
+    "transfer":     "-",
+    "intercompany": "-",
+    "internal":     "-",
+    "supplier":     "-",
+    "loan":         "-",
+    "other":        "-",
 }
 
 
