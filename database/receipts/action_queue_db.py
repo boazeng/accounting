@@ -82,3 +82,7 @@ def remove_item(item_id):
         return None
     _save(new_records)
     return item_id
+
+
+def list_done():
+    return [r for r in _load() if r.get("status") == "done"]

@@ -4590,6 +4590,14 @@ def remove_from_action_queue(item_id):
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/receipts/action-queue/done-list", methods=["GET"])
+def get_done_action_queue():
+    try:
+        return jsonify({"ok": True, "items": action_queue_db.list_done()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.route("/api/receipts/<receipt_id>/delete", methods=["DELETE", "POST"])
 def delete_receipt_endpoint(receipt_id):
     """Remove a receipt from the local queue (approved/pending/closed).
