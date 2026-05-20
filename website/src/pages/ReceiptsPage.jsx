@@ -15,11 +15,11 @@ function fmtAmount(n) {
   return Number(n).toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₪'
 }
 
-const ACTION_OPTIONS = [
-  { value: 'receipt',  label: 'הפקת קבלה' },
-  { value: 'journal',  label: 'רישום פקודת התאמה' },
-  { value: 'transfer', label: 'הפקת העברה בנקאית' },
-]
+const ACTION_STYLES = {
+  receipt:  { label: 'הפקת קבלה',           color: '#16a34a', bg: '#f0fdf4' },
+  journal:  { label: 'רישום פקודת התאמה',   color: '#d97706', bg: '#fffbeb' },
+  transfer: { label: 'הפקת העברה בנקאית',   color: '#2563eb', bg: '#eff6ff' },
+}
 
 export default function ReceiptsPage() {
   const [bankTxns, setBankTxns] = useState([])
@@ -56,7 +56,6 @@ export default function ReceiptsPage() {
   const [branchFilter, setBranchFilter] = useState('all')
   const [allBranches, setAllBranches] = useState([])
   const [processing, setProcessing] = useState(null)  // fncnum being marked
-  const [rowActions, setRowActions] = useState({})     // fncnum → action override
   const [deleting, setDeleting] = useState(null)       // receipt id being deleted
 
   const loadAll = useCallback(async (d, b) => {
@@ -249,9 +248,6 @@ export default function ReceiptsPage() {
     }
   }
 
-  function getRowAction(txn) {
-    return rowActions[txn.FNCNUM] ?? txn.suggested_action ?? 'journal'
-  }
 
   const branchOptions = modal ? (cashAccounts[modal.txn.BRANCHNAME] || Object.values(cashAccounts).flat()) : []
 
@@ -458,7 +454,8 @@ export default function ReceiptsPage() {
                     </thead>
                     <tbody>
                       {bankTxns.filter(t => !t.already_queued).map(txn => {
-                        const action = getRowAction(txn)
+                        const action = txn.suggested_action || 'journal'
+                        const style = ACTION_STYLES[action] || ACTION_STYLES.journal
                         const dir = txn.direction || ''
                         return (
                           <tr key={txn.FNCNUM}>
@@ -473,32 +470,17 @@ export default function ReceiptsPage() {
                             <td className="receipts-small" title={txn.ACCNAME2}>{txn.ACCDES2 || txn.ACCNAME2}</td>
                             <td>{txn.BRANCHNAME}</td>
                             <td>
-                              <select
-                                className="receipts-action-select"
-                                value={action}
-                                onChange={e => setRowActions(prev => ({ ...prev, [txn.FNCNUM]: e.target.value }))}
-                              >
-                                {ACTION_OPTIONS.map(opt => (
-                                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                ))}
-                              </select>
+                              <span className="receipts-action-label" style={{ color: style.color, background: style.bg }}>
+                                {style.label}
+                              </span>
                             </td>
                             <td>
-                              {action === 'receipt' ? (
+                              {action === 'receipt' && (
                                 <button
                                   className="receipts-btn receipts-btn-queue"
                                   onClick={() => openModal(txn)}
                                 >
                                   + הוסף לתור
-                                </button>
-                              ) : (
-                                <button
-                                  className="receipts-btn receipts-btn-process"
-                                  onClick={() => markProcessed(txn)}
-                                  disabled={processing === txn.FNCNUM}
-                                  title="סמן כבוצע — התנועה תוסר לאחר טיפול בפריוריטי"
-                                >
-                                  {processing === txn.FNCNUM ? '...' : '✓ בוצע'}
                                 </button>
                               )}
                             </td>

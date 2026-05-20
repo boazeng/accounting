@@ -190,19 +190,13 @@
   white-space: nowrap;
 }
 
-.receipts-action-select {
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  padding: 4px 8px;
+.receipts-action-label {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
   font-size: 12px;
-  background: #fff;
-  cursor: pointer;
-  color: #374151;
-  min-width: 160px;
-}
-.receipts-action-select:focus {
-  outline: none;
-  border-color: #6c5ce7;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .receipts-actions {
