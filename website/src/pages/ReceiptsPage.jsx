@@ -21,9 +21,9 @@ const ACTION_STYLES = {
   transfer: { label: 'הפקת העברה בנקאית',  color: '#1d4ed8', bg: '#eff6ff' },
 }
 
-// Options available per direction in the action queue
-const PLUS_ACTIONS  = ['receipt']
-const MINUS_ACTIONS = ['journal', 'transfer']
+// "-" = חובה בבנק (receipt), "+" = זכות בבנק (fee/transfer)
+const MINUS_ACTIONS = ['receipt']
+const PLUS_ACTIONS  = ['journal', 'transfer']
 
 function AmountCell({ sum1, direction }) {
   const dir = direction || ''
@@ -310,7 +310,7 @@ export default function ReceiptsPage() {
                           <td><AmountCell sum1={item.sum1} direction={item.direction} /></td>
                           <td>{item.branchname}</td>
                           <td>
-                            {item.direction === '+' ? (
+                            {item.direction === '-' ? (
                               <span className="receipts-action-label" style={{ color: ACTION_STYLES.receipt.color, background: ACTION_STYLES.receipt.bg }}>
                                 {ACTION_STYLES.receipt.label}
                               </span>
@@ -320,7 +320,7 @@ export default function ReceiptsPage() {
                                 value={item.action}
                                 onChange={e => updateQueueItemAction(item.id, e.target.value)}
                               >
-                                {MINUS_ACTIONS.map(val => (
+                                {PLUS_ACTIONS.map(val => (
                                   <option key={val} value={val}>{ACTION_STYLES[val].label}</option>
                                 ))}
                               </select>
@@ -405,9 +405,9 @@ export default function ReceiptsPage() {
                       {bankTxns.filter(t => !t.already_queued).map(txn => {
                         const action = txn.suggested_action || 'journal'
                         const s      = ACTION_STYLES[action] || ACTION_STYLES.journal
-                        const isPlus = txn.direction === '+'
-                        const btnColor = isPlus ? '#16a34a' : '#dc2626'
-                        const btnBg    = isPlus ? '#f0fdf4' : '#fef2f2'
+                        const isMinus  = txn.direction === '-'
+                        const btnColor = isMinus ? '#dc2626' : '#16a34a'
+                        const btnBg    = isMinus ? '#fef2f2' : '#f0fdf4'
                         return (
                           <tr key={txn.FNCNUM}>
                             <td>{fmt(txn.CURDATE)}</td>
