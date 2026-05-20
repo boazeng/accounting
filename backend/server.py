@@ -4313,17 +4313,68 @@ def receipts_save_cashname_map():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+_PROCESSED_TXNS_FILE = PROJECT_ROOT / "database" / "receipts" / "processed_txns.json"
+
+
+def _load_processed_txns():
+    if not _PROCESSED_TXNS_FILE.exists():
+        return set()
+    try:
+        return set(json.loads(_PROCESSED_TXNS_FILE.read_text(encoding="utf-8")).get("fncnums", []))
+    except Exception:
+        return set()
+
+
+def _save_processed_txns(fncnums):
+    _PROCESSED_TXNS_FILE.write_text(
+        json.dumps({"fncnums": sorted(fncnums)}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _bank_txn_type(accname1):
+    """Classify a bank-statement entry by its non-bank account code (ACCNAME1)."""
+    seg = (accname1 or "").split("-")[0]
+    if not seg.isdigit():
+        return "other"
+    n, c = len(seg), seg[0]
+    if n >= 5 and c == "5":
+        return "receipt"        # 50xxx-51xxx — ועד בית / clients
+    if n <= 3:
+        return "fee"            # 620-x-x, 400-x-x, 205-x-x — עמלה / הוצאה
+    if n == 4 and seg.startswith("40"):
+        return "transfer"       # בנק-לבנק
+    if n == 4 and c == "7":
+        return "intercompany"   # חו"ז עובד / בעל מניות
+    if n == 4 and c == "3":
+        return "internal"       # חשבון פנימי
+    if n >= 5 and c == "6":
+        return "supplier"       # ספק / חברה חיצונית
+    if n >= 5 and c in ("8", "9"):
+        return "loan"           # הלוואה
+    return "other"
+
+
 @app.route("/api/receipts/bank-transactions", methods=["GET"])
 def receipts_bank_transactions():
-    """List unmatched bank transactions (FNCTRANS type 'הת') that need a receipt.
+    """All unmatched bank-statement FNCTRANS('הת') entries across all types.
 
-    Cross-references with finalized receipts (FNCPATNAME='ק') to exclude bank lines
-    that are already reconciled in Priority. Receipt entries have bank=ACCNAME1,
-    customer=ACCNAME2; bank statement lines have customer=ACCNAME1, bank=ACCNAME2.
+    Each transaction gets a txn_type field:
+      receipt      — client payment needing a TINVOICES receipt (50xxx)
+      fee          — bank fee / expense entry (620-x, 400-x …)
+      transfer     — bank-to-bank transfer
+      intercompany — חו"ז employee/shareholder
+      internal     — internal company account
+      supplier     — supplier / external company
+      loan         — loan account
+      other        — unclassified
+
+    For receipt type: auto-filtered against finalized ק journal entries in Priority.
+    For other types:  filtered against a local processed_txns.json ignore list.
 
     Query params:
-      days   - how many days back to look (default 90)
-      branch - filter by branch (e.g. '026')
+      days   — lookback in days (default 180)
+      branch — filter by branch code, omit or 'all' for all branches
     """
     try:
         days = int(request.args.get("days", 180))
@@ -4345,59 +4396,77 @@ def receipts_bank_transactions():
             headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=30,
         )
         r_fnc.raise_for_status()
-        all_txns = r_fnc.json().get("value", [])
+        raw_txns = r_fnc.json().get("value", [])
 
         def _is_bank_account(code):
             seg = (code or "").split("-")[0]
             return len(seg) == 4 and seg.startswith("40") and seg.isdigit()
 
-        def _is_customer_account(code):
-            seg = (code or "").split("-")[0]
-            # Receipt-eligible clients: 5+ digit codes starting with "5" (50xxx, 51xxx…)
-            # Excludes bank accounts (40xx), inter-company (7xxx, 3xxx),
-            # suppliers (60xxx+), expense accounts (620-, 400-, 205-)
-            return seg.isdigit() and len(seg) >= 5 and seg[0] == "5"
+        # Only keep lines where ACCNAME2 is a bank account (40xx) — confirms this is
+        # a real bank-statement entry, not an unrelated journal entry.
+        bank_txns = [t for t in raw_txns if _is_bank_account(t.get("ACCNAME2", ""))]
 
-        # Build set of (customer, bank, amount) for finalized receipts (ק) in Priority.
-        # Receipt journal entries: ACCNAME1=bank, ACCNAME2=customer (opposite of הת lines).
-        # Any הת line matching a ק entry is already reconciled — skip it.
+        # Classify each transaction
+        for t in bank_txns:
+            t["txn_type"] = _bank_txn_type(t.get("ACCNAME1", ""))
+
+        # Build cross-reference set for receipt type:
+        # finalized receipts (ק) have bank=ACCNAME1, customer=ACCNAME2 (opposite of הת).
         receipted_set = set()
         try:
             r_flt = f"FNCPATNAME eq 'ק' and CURDATE ge {since_date} and SUM1 gt 0"
             if branch_safe:
                 r_flt += f" and BRANCHNAME eq '{branch_safe}'"
             r_rec = http_requests.get(
-                f"{_prio_url()}/FNCTRANS"
-                f"?$filter={r_flt}"
-                "&$select=ACCNAME1,ACCNAME2,SUM1&$top=1000",
+                f"{_prio_url()}/FNCTRANS?$filter={r_flt}&$select=ACCNAME1,ACCNAME2,SUM1&$top=1000",
                 headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=30,
             )
             if r_rec.status_code == 200:
                 for rec in r_rec.json().get("value", []):
-                    bank = rec.get("ACCNAME1", "")
-                    cust = rec.get("ACCNAME2", "")
-                    amt = round(float(rec.get("SUM1") or 0), 2)
-                    receipted_set.add((cust, bank, amt))
+                    receipted_set.add((
+                        rec.get("ACCNAME2", ""),
+                        rec.get("ACCNAME1", ""),
+                        round(float(rec.get("SUM1") or 0), 2),
+                    ))
         except Exception:
-            pass  # if this query fails, fall through without filtering
+            pass
 
-        # Keep only customer-payment lines not already receipted in Priority.
-        # ACCNAME1 = customer account, ACCNAME2 = bank account
-        txns = [
-            t for t in all_txns
-            if _is_customer_account(t.get("ACCNAME1", ""))
-            and _is_bank_account(t.get("ACCNAME2", ""))
-            and (
-                t.get("ACCNAME1", ""),
-                t.get("ACCNAME2", ""),
-                round(float(t.get("SUM1") or 0), 2),
-            ) not in receipted_set
-        ]
+        processed_ids = _load_processed_txns()
 
-        for txn in txns:
-            txn["already_queued"] = receipts_db.is_duplicate(txn.get("FNCNUM", ""))
+        txns = []
+        for t in bank_txns:
+            fncnum = t.get("FNCNUM", "")
+
+            # Manually marked as processed
+            if fncnum in processed_ids:
+                continue
+
+            # Receipt type: skip if finalized receipt already exists in Priority
+            if t["txn_type"] == "receipt":
+                key = (t.get("ACCNAME1", ""), t.get("ACCNAME2", ""), round(float(t.get("SUM1") or 0), 2))
+                if key in receipted_set:
+                    continue
+
+            t["already_queued"] = receipts_db.is_duplicate(fncnum)
+            txns.append(t)
 
         return jsonify({"ok": True, "transactions": txns, "days": days, "since": since_date[:10], "branch": branch})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/bank-transactions/process", methods=["POST"])
+def mark_bank_txn_processed():
+    """Mark a bank transaction as manually processed (hide from the queue)."""
+    try:
+        data = request.get_json() or {}
+        fncnum = str(data.get("fncnum", "")).strip()
+        if not fncnum:
+            return jsonify({"ok": False, "error": "Missing fncnum"}), 400
+        processed = _load_processed_txns()
+        processed.add(fncnum)
+        _save_processed_txns(processed)
+        return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 

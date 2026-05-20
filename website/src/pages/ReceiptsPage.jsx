@@ -15,6 +15,17 @@ function fmtAmount(n) {
   return Number(n).toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₪'
 }
 
+const TXN_TYPES = {
+  receipt:      { label: 'תקבול לקוח',     color: '#16a34a', action: 'queue' },
+  fee:          { label: 'עמלה / הוצאה',   color: '#d97706', action: 'process' },
+  transfer:     { label: 'העברה בנקאית',   color: '#2563eb', action: 'process' },
+  intercompany: { label: 'חו"ז',            color: '#7c3aed', action: 'process' },
+  internal:     { label: 'פנימי',           color: '#64748b', action: 'process' },
+  supplier:     { label: 'ספק',             color: '#b45309', action: 'process' },
+  loan:         { label: 'הלוואה',          color: '#0891b2', action: 'process' },
+  other:        { label: 'אחר',             color: '#6b7280', action: 'process' },
+}
+
 export default function ReceiptsPage() {
   const [bankTxns, setBankTxns] = useState([])
   const [pending, setPending] = useState([])
@@ -48,8 +59,8 @@ export default function ReceiptsPage() {
   const [days, setDays] = useState(180)
   const [since, setSince] = useState('')
   const [branchFilter, setBranchFilter] = useState('all')
-  // Branches extracted from the last "all" fetch — used to populate the dropdown
   const [allBranches, setAllBranches] = useState([])
+  const [processing, setProcessing] = useState(null)  // fncnum being marked
 
   const loadAll = useCallback(async (d, b) => {
     const daysParam = d ?? days
@@ -207,6 +218,24 @@ export default function ReceiptsPage() {
     }
   }
 
+  async function markProcessed(txn) {
+    setProcessing(txn.FNCNUM)
+    try {
+      const resp = await fetch(`${API}/api/receipts/bank-transactions/process`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fncnum: txn.FNCNUM }),
+      })
+      const data = await resp.json()
+      if (!data.ok) throw new Error(data.error || 'שגיאה')
+      await loadAll()
+    } catch (e) {
+      alert('שגיאה: ' + e.message)
+    } finally {
+      setProcessing(null)
+    }
+  }
+
   const branchOptions = modal ? (cashAccounts[modal.txn.BRANCHNAME] || Object.values(cashAccounts).flat()) : []
 
   return (
@@ -342,10 +371,10 @@ export default function ReceiptsPage() {
               </section>
             )}
 
-            {/* ── Section 2: Unmatched bank transactions needing receipt ── */}
+            {/* ── Section 2: Unmatched bank transactions ── */}
             <section className="receipts-section">
               <div className="receipts-section-header">
-                <h2>תנועות בנק ללא קבלה</h2>
+                <h2>תנועות בנק ללא התאמה</h2>
                 <span className="receipts-badge">
                   {bankTxns.filter(t => !t.already_queued).length}
                 </span>
@@ -382,7 +411,8 @@ export default function ReceiptsPage() {
                 <button className="receipts-refresh" onClick={() => loadAll(undefined, branchFilter)}>רענן</button>
               </div>
               <p className="receipts-hint">
-                תנועות בנק שיובאו מדף הבנק ועדיין לא הותאמו — בדוק אם יצאה קבלה ואם לא, הוסף לתור.
+                תנועות בנק שיובאו ועדיין לא הותאמו בפריוריטי.
+                תקבול לקוח → הוסף לתור קבלות | עמלה / הוצאה / העברה → סמן כמטופל לאחר ביצוע ידני בפריוריטי.
               </p>
               {bankTxns.filter(t => !t.already_queued).length === 0 ? (
                 <p className="receipts-empty">אין תנועות בנק פתוחות בתקופה זו</p>
@@ -392,6 +422,7 @@ export default function ReceiptsPage() {
                     <thead>
                       <tr>
                         <th>תאריך</th>
+                        <th>סוג</th>
                         <th>תיאור תנועה</th>
                         <th>חשבון</th>
                         <th>סכום</th>
@@ -401,24 +432,43 @@ export default function ReceiptsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {bankTxns.filter(t => !t.already_queued).map(txn => (
-                        <tr key={txn.FNCNUM}>
-                          <td>{fmt(txn.CURDATE)}</td>
-                          <td>{txn.DETAILS}</td>
-                          <td title={txn.ACCNAME1} className="receipts-mono">{txn.ACCDES1 || txn.ACCNAME1}</td>
-                          <td className="receipts-amount">{fmtAmount(txn.SUM1)}</td>
-                          <td className="receipts-small" title={txn.ACCNAME2}>{txn.ACCDES2 || txn.ACCNAME2}</td>
-                          <td>{txn.BRANCHNAME}</td>
-                          <td>
-                            <button
-                              className="receipts-btn receipts-btn-queue"
-                              onClick={() => openModal(txn)}
-                            >
-                              + הוסף לתור
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      {bankTxns.filter(t => !t.already_queued).map(txn => {
+                        const typeInfo = TXN_TYPES[txn.txn_type] || TXN_TYPES.other
+                        return (
+                          <tr key={txn.FNCNUM}>
+                            <td>{fmt(txn.CURDATE)}</td>
+                            <td>
+                              <span className="receipts-type-badge" style={{ background: typeInfo.color }}>
+                                {typeInfo.label}
+                              </span>
+                            </td>
+                            <td>{txn.DETAILS}</td>
+                            <td title={txn.ACCNAME1} className="receipts-mono">{txn.ACCDES1 || txn.ACCNAME1}</td>
+                            <td className="receipts-amount">{fmtAmount(txn.SUM1)}</td>
+                            <td className="receipts-small" title={txn.ACCNAME2}>{txn.ACCDES2 || txn.ACCNAME2}</td>
+                            <td>{txn.BRANCHNAME}</td>
+                            <td>
+                              {typeInfo.action === 'queue' ? (
+                                <button
+                                  className="receipts-btn receipts-btn-queue"
+                                  onClick={() => openModal(txn)}
+                                >
+                                  + הוסף לתור
+                                </button>
+                              ) : (
+                                <button
+                                  className="receipts-btn receipts-btn-process"
+                                  onClick={() => markProcessed(txn)}
+                                  disabled={processing === txn.FNCNUM}
+                                  title="סמן כמטופל — התנועה תוסר מהתור לאחר ביצוע ידני בפריוריטי"
+                                >
+                                  {processing === txn.FNCNUM ? '...' : '✓ מטופל'}
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
