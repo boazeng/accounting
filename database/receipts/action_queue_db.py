@@ -25,11 +25,12 @@ def list_pending():
 
 
 def get_fncnums():
-    """Return set of FNCNUMs currently in the pending queue."""
-    return {r["fncnum"] for r in _load() if r.get("status") == "pending"}
+    """Return set of FNCNUMs in the queue (pending or done) so they stay off the bank table."""
+    return {r["fncnum"] for r in _load() if r.get("status") in ("pending", "done")}
 
 
-def add_item(fncnum, curdate, details, accname1, accdes1, accname2, accdes2, sum1, direction, branchname, action):
+def add_item(fncnum, curdate, details, accname1, accdes1, accname2, accdes2,
+             sum1, direction, branchname, action, priority_fncnum=""):
     records = _load()
     if any(r.get("fncnum") == fncnum and r.get("status") == "pending" for r in records):
         return None  # already queued
@@ -46,6 +47,7 @@ def add_item(fncnum, curdate, details, accname1, accdes1, accname2, accdes2, sum
         "direction": direction,
         "branchname": branchname,
         "action": action,
+        "priority_fncnum": priority_fncnum,
         "status": "pending",
         "created_at": datetime.now().isoformat(),
     }
@@ -85,4 +87,7 @@ def remove_item(item_id):
 
 
 def list_done():
-    return [r for r in _load() if r.get("status") == "done"]
+    items = [r for r in _load() if r.get("status") == "done"]
+    for item in items:
+        item.setdefault("priority_fncnum", "")
+    return items

@@ -20,7 +20,7 @@ def _save(records):
     _DB_FILE.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def add_receipt(fncnum, accname, accdes, cashname, totprice, ivdate, branchname, details, source_ivnum=""):
+def add_receipt(fncnum, accname, accdes, cashname, totprice, ivdate, branchname, details, source_ivnum="", doc_type="receipt"):
     records = _load()
     for r in records:
         if r.get("fncnum") == fncnum and r.get("status") in ("pending", "approved"):
@@ -35,7 +35,8 @@ def add_receipt(fncnum, accname, accdes, cashname, totprice, ivdate, branchname,
         "ivdate": ivdate,
         "branchname": branchname,
         "details": details,
-        "source_ivnum": source_ivnum,  # CINVOICES.IVNUM → sent as REFERENCE in TINVOICES
+        "source_ivnum": source_ivnum,
+        "doc_type": doc_type,          # 'receipt' | 'invoice_receipt'
         "status": "pending",
         "created_at": datetime.now().isoformat(),
         "priority_ivnum": None,
@@ -92,6 +93,35 @@ def _save_receipt(updated_rec):
             _save(records)
             return updated_rec
     return None
+
+
+def add_closed_receipt(bank_fncnum, accname, accdes, cashname, totprice, ivdate, branchname, details, rc_ivnum, fncnum_journal=""):
+    """Import an already-closed Priority receipt. Dedup by rc_ivnum."""
+    records = _load()
+    if any(r.get("rc_ivnum") == rc_ivnum for r in records if rc_ivnum):
+        return None  # already imported
+    now = datetime.now().isoformat()
+    rec = {
+        "id": str(uuid.uuid4()),
+        "fncnum": fncnum_journal or bank_fncnum,
+        "bank_fncnum": bank_fncnum,
+        "accname": accname,
+        "accdes": accdes,
+        "cashname": cashname,
+        "totprice": totprice,
+        "ivdate": ivdate,
+        "branchname": branchname,
+        "details": details,
+        "status": "closed",
+        "priority_ivnum": rc_ivnum,
+        "rc_ivnum": rc_ivnum,
+        "approved_at": now,
+        "closed_at": now,
+        "created_at": now,
+    }
+    records.append(rec)
+    _save(records)
+    return rec
 
 
 def is_duplicate(fncnum):

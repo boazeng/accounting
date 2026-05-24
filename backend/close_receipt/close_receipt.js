@@ -25,16 +25,30 @@ function parseOdataUrl(odataUrl) {
 }
 
 async function fetchIV(odataBase, ivnum) {
-  // Build OData key — Priority receipts are always IVTYPE='T', DEBIT='D' when draft
-  const key = `IVNUM='${ivnum}',IVTYPE='T',DEBIT='D'`;
-  const url = `${odataBase}/TINVOICES(${key})?$select=IV,IVNUM,FINAL,TOTPRICE,STATDES`;
   const user = process.env.PRIORITY_USERNAME;
   const pass = process.env.PRIORITY_PASSWORD;
   const auth = 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64');
-  const resp = await fetch(url, { headers: { Authorization: auth, Accept: 'application/json' } });
-  if (!resp.ok) throw new Error(`Cannot fetch ${ivnum}: HTTP ${resp.status}`);
-  const data = await resp.json();
-  if (!data.IV) throw new Error(`IV field not found for ${ivnum} — is it a valid draft receipt?`);
+
+  // Try key-based lookup first (draft receipts: IVTYPE='T', DEBIT='D')
+  // If that returns 404, fall back to filter-based search (handles already-closed or re-keyed receipts)
+  const keyUrl = `${odataBase}/TINVOICES(IVNUM='${ivnum}',IVTYPE='T',DEBIT='D')?$select=IV,IVNUM,FINAL,TOTPRICE,STATDES`;
+  const keyResp = await fetch(keyUrl, { headers: { Authorization: auth, Accept: 'application/json' } });
+
+  let data;
+  if (keyResp.ok) {
+    data = await keyResp.json();
+  } else {
+    // Fall back: search by IVNUM without assuming IVTYPE/DEBIT
+    const filterUrl = `${odataBase}/TINVOICES?$filter=IVNUM eq '${ivnum}'&$select=IV,IVNUM,FINAL,TOTPRICE,STATDES,IVTYPE,DEBIT&$top=1`;
+    const filterResp = await fetch(filterUrl, { headers: { Authorization: auth, Accept: 'application/json' } });
+    if (!filterResp.ok) throw new Error(`קבלה ${ivnum} לא נמצאה בפריוריטי (HTTP ${filterResp.status}). ייתכן שבוטלה — מחק אותה ממערכת TACT.`);
+    const filterData = await filterResp.json();
+    const items = filterData.value || [];
+    if (!items.length) throw new Error(`קבלה ${ivnum} לא קיימת בפריוריטי. ייתכן שבוטלה — מחק אותה ממערכת TACT.`);
+    data = items[0];
+  }
+
+  if (!data.IV) throw new Error(`שדה IV לא נמצא עבור ${ivnum} — האם זו טיוטת קבלה תקינה?`);
   return { iv: data.IV, final: data.FINAL, status: data.STATDES, total: data.TOTPRICE };
 }
 
@@ -105,7 +119,39 @@ async function main() {
   await handleStep(firstStep, iv, ivnum);
   process.stderr.write('CLOSETIV completed\n');
 
-  process.stdout.write(JSON.stringify({ ok: true, ivnum, iv }));
+  // After CLOSETIV, fetch updated receipt data — get FNCNUM (journal entry) and RC number
+  let rcIvnum = null;
+  let fncnum = null;
+  try {
+    const auth2 = 'Basic ' + Buffer.from(`${process.env.PRIORITY_USERNAME}:${process.env.PRIORITY_PASSWORD}`).toString('base64');
+    // Give Priority a moment to commit the journal entry
+    await new Promise(r => setTimeout(r, 1500));
+
+    // 1. Re-fetch the original draft to get its FNCNUM
+    const draftUrl = `${odataBase}/TINVOICES?$filter=IVNUM eq '${ivnum}'&$select=IVNUM,FNCNUM,FINAL,STATDES&$top=1`;
+    const dr = await fetch(draftUrl, { headers: { Authorization: auth2, Accept: 'application/json' } });
+    if (dr.ok) {
+      const draftData = await dr.json();
+      const draft = (draftData.value || [])[0];
+      if (draft) fncnum = draft.FNCNUM || null;
+    }
+
+    // 2. If we have FNCNUM, find the RC receipt with the same journal entry
+    if (fncnum) {
+      const rcUrl = `${odataBase}/TINVOICES?$filter=FNCNUM eq '${fncnum}' and FINAL eq 'Y'&$select=IVNUM,FNCNUM,FINAL,STATDES&$top=5`;
+      const rr = await fetch(rcUrl, { headers: { Authorization: auth2, Accept: 'application/json' } });
+      if (rr.ok) {
+        const rcData = await rr.json();
+        const items = (rcData.value || []).filter(x => x.IVNUM !== ivnum);
+        if (items.length) rcIvnum = items[0].IVNUM;
+      }
+    }
+    process.stderr.write(`Post-close: fncnum=${fncnum} rc=${rcIvnum}\n`);
+  } catch (e) {
+    process.stderr.write(`Post-close fetch failed (non-fatal): ${e.message}\n`);
+  }
+
+  process.stdout.write(JSON.stringify({ ok: true, ivnum, iv, fncnum, rc_ivnum: rcIvnum }));
 }
 
 main().catch(err => {

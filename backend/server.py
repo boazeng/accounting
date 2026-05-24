@@ -24,6 +24,27 @@ def _now_il():
     """Return current datetime in Israel timezone."""
     return datetime.now(_IL_TZ)
 
+
+_HEB_MONTHS = [
+    'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני',
+    'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר',
+]
+
+def _advance_month(text):
+    """Replace first Hebrew month name in text with the next month. December→January increments year."""
+    import re
+    if not text:
+        return text
+    for i, month in enumerate(_HEB_MONTHS):
+        if month in text:
+            next_month = _HEB_MONTHS[(i + 1) % 12]
+            result = text.replace(month, next_month, 1)
+            if i == 11:  # December → January: bump year
+                result = re.sub(r'\b(\d{4})\b', lambda m: str(int(m.group(1)) + 1), result, count=1)
+            return result
+    return text
+
+
 # Use logging (writes to stderr, works in Lambda where stdout is broken)
 logger = logging.getLogger("urbangroup")
 logger.setLevel(logging.INFO)
@@ -241,6 +262,18 @@ try:
 except Exception as _aq_db_err:
     logger.error(f"action_queue_db load FAILED: {_aq_db_err}")
     action_queue_db = None
+
+# Load journal-templates database module
+try:
+    jt_db_path = PROJECT_ROOT / "database" / "receipts" / "journal_templates_db.py"
+    spec_jt_db = importlib.util.spec_from_file_location("journal_templates_db", jt_db_path)
+    journal_templates_db = importlib.util.module_from_spec(spec_jt_db)
+    sys.modules["journal_templates_db"] = journal_templates_db
+    spec_jt_db.loader.exec_module(journal_templates_db)
+    logger.info(f"journal_templates_db loaded from {jt_db_path}")
+except Exception as _jt_db_err:
+    logger.error(f"journal_templates_db load FAILED: {_jt_db_err}")
+    journal_templates_db = None
 
 # Load cash-flow (תזרים) database module
 cf_db_path = PROJECT_ROOT / "database" / "cashflow" / "cashflow_db.py"
@@ -4489,6 +4522,7 @@ def receipts_bank_transactions():
                 "CASHNAME":         cashname,
                 "bank_code":        cashname,
                 "bank_desc":        bank_desc,
+                "bank_name":        bank_name,
                 "other_code":       "",
                 "other_desc":       line.get("DETAILS", ""),
                 "BRANCHNAME":       branch_code,
@@ -4524,6 +4558,710 @@ def mark_bank_txn_processed():
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/bank-line/create-receipt", methods=["POST"])
+def bank_line_create_receipt():
+    """Create a TINVOICES receipt in Priority directly from a BANKLINESA line."""
+    try:
+        data       = request.get_json(force=True) or {}
+        txn_id     = str(data.get("txn_id",     "")).strip()
+        accname    = str(data.get("accname",    "")).strip()
+        accdes     = str(data.get("accdes",     "")).strip()
+        amount     = float(data.get("amount",   0))
+        ivdate     = str(data.get("ivdate",     ""))[:10]
+        cashname   = str(data.get("cashname",   "")).strip()
+        branchname = str(data.get("branchname", "")).strip()
+        details    = str(data.get("details",    "")).strip()
+        doc_type   = str(data.get("doc_type",   "receipt")).strip()  # 'receipt' | 'invoice_receipt'
+
+        source_ivnum = str(data.get("source_ivnum", "")).strip()
+
+        if not txn_id or not accname or amount <= 0:
+            return jsonify({"ok": False, "error": "חסרים שדות חובה (txn_id, accname, amount)"}), 400
+
+        # Append branch suffix to accname if not already present
+        if branchname and branchname != "000" and not accname.endswith(f"-{branchname}"):
+            full_accname = f"{accname}-{branchname}"
+        else:
+            full_accname = accname
+
+        payload = {
+            "ACCNAME":     full_accname,
+            "CASHNAME":    cashname,
+            "TOTPRICE":    amount,
+            "IVDATE":      ivdate,
+            "PAYDATE":     ivdate,
+            "BRANCHNAME":  branchname,
+            "DETAILS":     details,
+            "CASHPAYMENT": 0,   # bank transfer — no cash
+        }
+        if source_ivnum:
+            payload["REFERENCE"] = source_ivnum
+        logger.info(f"bank_line_create_receipt payload: {payload}")
+
+        resp = http_requests.post(
+            f"{_prio_url()}/TINVOICES", json=payload,
+            headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=20,
+        )
+        resp.raise_for_status()
+        resp_data      = resp.json()
+        priority_ivnum = resp_data.get("IVNUM", "")
+        ivtype         = resp_data.get("IVTYPE", "T")
+        debit_val      = resp_data.get("DEBIT",  "D")
+
+        # Fill TPAYMENT2_SUBFORM — payment type 3 = bank transfer
+        key = f"IVNUM='{priority_ivnum}',IVTYPE='{ivtype}',DEBIT='{debit_val}'"
+        pay_payload = {
+            "PAYMENTCODE": "3",
+            "PAYDATE":     ivdate,
+            "QPRICE":      amount,
+            "FIRSTPAY":    amount,
+            "TOTPRICE":    amount,
+            "DETAILS":     details,
+        }
+        try:
+            http_requests.post(
+                f"{_prio_url()}/TINVOICES({key})/TPAYMENT2_SUBFORM",
+                json=pay_payload, headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=15,
+            ).raise_for_status()
+        except Exception as pay_err:
+            logger.warning(f"TPAYMENT2_SUBFORM failed (non-fatal): {pay_err}")
+
+        # Store in receipts_db as approved (skip pending step)
+        rec = receipts_db.add_receipt(
+            fncnum=txn_id,
+            accname=accname,
+            accdes=accdes or accname,
+            cashname=cashname,
+            totprice=amount,
+            ivdate=ivdate,
+            branchname=branchname,
+            details=details,
+            source_ivnum=source_ivnum,
+            doc_type=doc_type,
+        )
+        if rec:
+            receipts_db.approve_receipt(rec["id"], priority_ivnum)
+
+        # Hide bank line from the unmatched list
+        processed = _load_processed_txns()
+        processed.add(txn_id)
+        _save_processed_txns(processed)
+
+        return jsonify({"ok": True, "priority_ivnum": priority_ivnum})
+
+    except http_requests.exceptions.HTTPError as e:
+        try:
+            detail = e.response.json()
+        except Exception:
+            detail = str(e)
+        return jsonify({"ok": False, "error": str(e), "detail": detail}), 500
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/last-einvoice", methods=["GET"])
+def last_einvoice():
+    """Fetch most recent EINVOICES + line items for a customer, with Hebrew month advanced for auto-fill."""
+    try:
+        accname    = request.args.get("accname", "").strip()
+        branchname = request.args.get("branchname", "").strip()
+        if not accname:
+            return jsonify({"ok": False, "error": "Missing accname"}), 400
+
+        if branchname and branchname != "000" and not accname.endswith(f"-{branchname}"):
+            full_accname = f"{accname}-{branchname}"
+        else:
+            full_accname = accname
+
+        filter_q = f"CUSTNAME eq '{full_accname}'"
+        url = (
+            f"{_prio_url()}/EINVOICES?$filter={filter_q}"
+            f"&$orderby=IVDATE desc&$top=1"
+            f"&$select=IV,IVNUM,IVTYPE,DEBIT,IVDATE,CUSTNAME,DETAILS,BRANCHNAME,TOTPRICE"
+        )
+        resp = http_requests.get(url, headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=15)
+        resp.raise_for_status()
+        items_list = resp.json().get("value", [])
+        if not items_list:
+            return jsonify({"ok": True, "found": False})
+
+        inv    = items_list[0]
+        ivnum  = inv.get("IVNUM", "")
+        ivtype = inv.get("IVTYPE", "I")
+        debit  = inv.get("DEBIT",  "T")
+
+        # Fetch EINVOICEITEMS_SUBFORM for this invoice
+        line_items = []
+        if ivnum:
+            key      = f"IVNUM='{ivnum}',IVTYPE='{ivtype}',DEBIT='{debit}'"
+            sub_url  = f"{_prio_url()}/EINVOICES({key})/EINVOICEITEMS_SUBFORM?$select=PARTNAME,PDES,TQUANT,PRICE"
+            try:
+                ir = http_requests.get(sub_url, headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=15)
+                if ir.ok:
+                    line_items = ir.json().get("value", [])
+            except Exception as sub_err:
+                logger.warning(f"EINVOICEITEMS_SUBFORM fetch failed (non-fatal): {sub_err}")
+
+        advanced_items = [
+            {
+                "PARTNAME": it.get("PARTNAME", "000"),
+                "PDES":     _advance_month(it.get("PDES", "")),
+                "TQUANT":   it.get("TQUANT", 1),
+                "PRICE":    it.get("PRICE", 0),
+            }
+            for it in line_items
+        ]
+
+        return jsonify({
+            "ok":           True,
+            "found":        True,
+            "ivnum":        ivnum,
+            "ivdate":       inv.get("IVDATE", ""),
+            "details":      inv.get("DETAILS", ""),
+            "details_next": _advance_month(inv.get("DETAILS", "")),
+            "branchname":   inv.get("BRANCHNAME", ""),
+            "totprice":     inv.get("TOTPRICE", 0),
+            "items":        advanced_items,
+        })
+    except http_requests.exceptions.HTTPError as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/bank-line/create-invoice-receipt", methods=["POST"])
+def bank_line_create_invoice_receipt():
+    """Create an EINVOICES (חשבונית קבלה) document in Priority, then add line items."""
+    try:
+        data       = request.get_json(force=True) or {}
+        txn_id     = str(data.get("txn_id",     "")).strip()
+        accname    = str(data.get("accname",    "")).strip()
+        accdes     = str(data.get("accdes",     "")).strip()
+        amount     = float(data.get("amount",   0))
+        ivdate     = str(data.get("ivdate",     ""))[:10]
+        cashname   = str(data.get("cashname",   "")).strip()
+        branchname = str(data.get("branchname", "")).strip()
+        details    = str(data.get("details",    "")).strip()
+        items      = data.get("items", [])
+
+        if not txn_id or not accname or amount <= 0:
+            return jsonify({"ok": False, "error": "חסרים שדות חובה (txn_id, accname, amount)"}), 400
+
+        if branchname and branchname != "000" and not accname.endswith(f"-{branchname}"):
+            full_accname = f"{accname}-{branchname}"
+        else:
+            full_accname = accname
+
+        # 1. Create EINVOICES header
+        header_payload = {
+            "CUSTNAME":   full_accname,
+            "IVDATE":     ivdate,
+            "DETAILS":    details,
+            "BRANCHNAME": branchname,
+        }
+        logger.info(f"create_invoice_receipt header: {header_payload}")
+        resp = http_requests.post(
+            f"{_prio_url()}/EINVOICES", json=header_payload,
+            headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=20,
+        )
+        resp.raise_for_status()
+        resp_data      = resp.json()
+        priority_ivnum = resp_data.get("IVNUM", "")
+        ivtype         = resp_data.get("IVTYPE", "I")
+        debit          = resp_data.get("DEBIT",  "T")
+        key            = f"IVNUM='{priority_ivnum}',IVTYPE='{ivtype}',DEBIT='{debit}'"
+
+        # 2. POST each line item to EINVOICEITEMS_SUBFORM
+        for item in items:
+            item_payload = {
+                "PARTNAME": str(item.get("PARTNAME", "000")),
+                "PDES":     str(item.get("PDES", "")),
+                "TQUANT":   float(item.get("TQUANT", 1)),
+                "PRICE":    float(item.get("PRICE", 0)),
+            }
+            try:
+                http_requests.post(
+                    f"{_prio_url()}/EINVOICES({key})/EINVOICEITEMS_SUBFORM",
+                    json=item_payload, headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=15,
+                ).raise_for_status()
+            except Exception as item_err:
+                logger.warning(f"EINVOICEITEMS_SUBFORM item failed (non-fatal): {item_err}")
+
+        # 3. Save to receipts_db
+        rec = receipts_db.add_receipt(
+            fncnum=txn_id,
+            accname=accname,
+            accdes=accdes or accname,
+            cashname=cashname,
+            totprice=amount,
+            ivdate=ivdate,
+            branchname=branchname,
+            details=details,
+            doc_type='invoice_receipt',
+        )
+        if rec:
+            receipts_db.approve_receipt(rec["id"], priority_ivnum)
+
+        # 4. Mark bank line processed
+        processed = _load_processed_txns()
+        processed.add(txn_id)
+        _save_processed_txns(processed)
+
+        return jsonify({"ok": True, "priority_ivnum": priority_ivnum})
+
+    except http_requests.exceptions.HTTPError as e:
+        try:
+            detail = e.response.json()
+        except Exception:
+            detail = str(e)
+        return jsonify({"ok": False, "error": str(e), "detail": detail}), 500
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/bank-line/dismiss", methods=["POST"])
+def bank_line_dismiss():
+    """Mark a BANKLINESA line as handled — hides it from the unmatched list."""
+    try:
+        data   = request.get_json(force=True) or {}
+        txn_id = str(data.get("txn_id", "")).strip()
+        if not txn_id:
+            return jsonify({"ok": False, "error": "Missing txn_id"}), 400
+        processed = _load_processed_txns()
+        processed.add(txn_id)
+        _save_processed_txns(processed)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+def _detect_bank_gl(cashname, branchname, bank_name_hint=""):
+    """Auto-detect the bank GL account (40xx-branch) for a given CASHNAME.
+
+    Order of lookup:
+    1. Cached in bank_gl_accounts.json (keyed by CASHNAME)
+    2. Query recent FNCTRANS for the branch → find 40xx accounts → match by bank name hint
+    3. Return empty string if unresolvable (caller must handle)
+    """
+    import re as _re
+
+    if journal_templates_db:
+        cached = journal_templates_db.get_bank_gl(cashname)
+        if cached:
+            return cached, ""
+
+    # Query FNCTRANS for this branch to find 40xx GL accounts
+    try:
+        since = (_now_il().replace(year=_now_il().year - 2)).strftime("%Y-%m-%dT00:00:00Z")
+        flt = f"BRANCHNAME eq '{branchname}' and FNCDATE ge {since}"
+        r = http_requests.get(
+            f"{_prio_url()}/FNCTRANS"
+            f"?$filter={flt}"
+            "&$expand=FNCITEMS_SUBFORM($select=ACCNAME,ACCDES)"
+            "&$select=FNCNUM&$top=100",
+            headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=15,
+        )
+        r.raise_for_status()
+        bank_accs = {}  # accname → accdes
+        for entry in r.json().get("value", []):
+            for item in entry.get("FNCITEMS_SUBFORM", []):
+                acc = item.get("ACCNAME", "")
+                if _re.match(r"^40\d\d-", acc):
+                    bank_accs[acc] = item.get("ACCDES", "")
+
+        if not bank_accs:
+            return "", ""
+
+        if len(bank_accs) == 1:
+            gl, desc = list(bank_accs.items())[0]
+            if journal_templates_db:
+                journal_templates_db.save_bank_gl(cashname, gl, desc)
+            return gl, desc
+
+        # Multiple accounts — disambiguate by bank name hint (contains match on ACCDES)
+        if bank_name_hint:
+            for acc, desc in bank_accs.items():
+                if bank_name_hint in desc:
+                    if journal_templates_db:
+                        journal_templates_db.save_bank_gl(cashname, acc, desc)
+                    return acc, desc
+
+        # Still ambiguous — return candidates for the caller to report
+        return "", str(list(bank_accs.keys()))
+    except Exception as _e:
+        logger.warning(f"_detect_bank_gl failed: {_e}")
+        return "", ""
+
+
+@app.route("/api/receipts/bank-line/create-journal", methods=["POST"])
+def bank_line_create_journal():
+    """Create an FNCTRANS journal entry in Priority for a bank line.
+
+    Bank GL account is auto-detected from FNCTRANS history (branch + bank name).
+    The other side (counterpart) is provided by the user.
+
+    direction '+' (CREDIT in bank = money in):
+        DEBIT  = bank GL account
+        CREDIT = counterpart
+    direction '-' (DEBIT in bank = money out):
+        DEBIT  = counterpart
+        CREDIT = bank GL account
+    """
+    try:
+        data             = request.get_json(force=True) or {}
+        txn_id           = str(data.get("txn_id",            "")).strip()
+        direction        = str(data.get("direction",          "-")).strip()
+        amount           = float(data.get("amount",           0))
+        cashname         = str(data.get("cashname",           "")).strip()
+        bank_name_hint   = str(data.get("bank_name",          "")).strip()
+        counterpart      = str(data.get("counterpart_account","")).strip()
+        counterpart_desc = str(data.get("counterpart_desc",   "")).strip()
+        details          = str(data.get("details",            "")).strip()
+        ivdate           = str(data.get("ivdate",             ""))[:10]
+        branchname       = str(data.get("branchname",         "")).strip()
+        save_tpl         = data.get("save_template", True)
+
+        if not txn_id or not counterpart or amount <= 0:
+            return jsonify({"ok": False, "error": "חסרים שדות חובה (txn_id, counterpart_account, amount)"}), 400
+
+        # Auto-detect bank GL account from FNCTRANS history
+        bank_gl_account, bank_gl_desc = _detect_bank_gl(cashname, branchname, bank_name_hint)
+        if not bank_gl_account:
+            return jsonify({
+                "ok": False,
+                "error": f"לא נמצא חשבון GL לבנק (CASHNAME={cashname}, סניף={branchname}). "
+                          f"בדוק שיש תנועות יומן קיימות בפריוריטי לסניף זה.",
+            }), 422
+
+        def _with_branch(acc, branch):
+            if branch and branch != "000" and not acc.endswith(f"-{branch}"):
+                return f"{acc}-{branch}"
+            return acc
+
+        bank_acc = bank_gl_account  # already includes branch suffix from FNCTRANS
+        cp_acc   = _with_branch(counterpart, branchname)
+
+        if direction == "+":
+            bank_debit,  bank_credit = amount, 0.0
+            cp_debit,    cp_credit   = 0.0,    amount
+        else:
+            bank_debit,  bank_credit = 0.0,    amount
+            cp_debit,    cp_credit   = amount,  0.0
+
+        payload = {
+            "FNCDATE":    ivdate,
+            "BALDATE":    ivdate,
+            "BRANCHNAME": branchname,
+            "DETAILS":    details,
+            "FNCITEMS_SUBFORM": [
+                {"ACCNAME": bank_acc, "DEBIT1": bank_debit, "CREDIT1": bank_credit, "DETAILS": details},
+                {"ACCNAME": cp_acc,   "DEBIT1": cp_debit,   "CREDIT1": cp_credit,   "DETAILS": details},
+            ],
+        }
+        logger.info(f"bank_line_create_journal payload: {payload}")
+
+        resp = http_requests.post(
+            f"{_prio_url()}/FNCTRANS", json=payload,
+            headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=20,
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        fncnum = result.get("FNCNUM", "")
+
+        # Save template for future suggestions
+        if journal_templates_db and save_tpl and counterpart:
+            journal_templates_db.save_template(details, counterpart, counterpart_desc)
+
+        # Record in action queue as done (so it appears in the sent-to-Priority list)
+        if action_queue_db:
+            item = action_queue_db.add_item(
+                fncnum=txn_id,
+                curdate=ivdate,
+                details=details,
+                accname1=bank_acc,
+                accdes1=bank_gl_desc,
+                accname2=cp_acc,
+                accdes2=counterpart_desc,
+                sum1=amount,
+                direction=direction,
+                branchname=branchname,
+                action="journal",
+                priority_fncnum=fncnum,
+            )
+            if item:
+                action_queue_db.mark_done(item["id"])
+
+        # Mark bank line as processed (hide from unmatched list)
+        processed = _load_processed_txns()
+        processed.add(txn_id)
+        _save_processed_txns(processed)
+
+        return jsonify({"ok": True, "fncnum": fncnum})
+
+    except http_requests.exceptions.HTTPError as e:
+        try:
+            detail = e.response.json()
+        except Exception:
+            detail = str(e)
+        return jsonify({"ok": False, "error": str(e), "detail": detail}), 500
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/journal-template", methods=["GET"])
+def journal_template_suggest():
+    """Return saved counterpart-account suggestion for a transaction description."""
+    try:
+        details = (request.args.get("details") or "").strip()
+        if not details or not journal_templates_db:
+            return jsonify({"ok": True, "counterpart_account": "", "counterpart_desc": ""})
+        acc, desc = journal_templates_db.get_suggestion(details)
+        return jsonify({"ok": True, "counterpart_account": acc or "", "counterpart_desc": desc or ""})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/bank-gl", methods=["GET"])
+def get_bank_gl_account():
+    """Detect and return the bank GL account for a CASHNAME (uses cache then FNCTRANS lookup)."""
+    try:
+        cashname   = (request.args.get("cashname")   or "").strip()
+        branchname = (request.args.get("branchname") or cashname.split("-")[0]).strip()
+        bank_name  = (request.args.get("bank_name")  or "").strip()
+        if not cashname:
+            return jsonify({"ok": True, "gl_account": "", "gl_desc": ""})
+        gl, desc = _detect_bank_gl(cashname, branchname, bank_name)
+        return jsonify({"ok": True, "gl_account": gl or "", "gl_desc": desc or ""})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/priority-accounts", methods=["GET"])
+def priority_accounts_search():
+    """Search Priority chart of accounts (ACCOUNTS) for autocomplete."""
+    try:
+        q = (request.args.get("q") or "").strip()
+        if len(q) < 2:
+            return jsonify({"ok": True, "accounts": []})
+        q_safe = q.replace("'", "")
+        flt = f"contains(ACCNAME,'{q_safe}') or contains(ACCDES,'{q_safe}')"
+        r = http_requests.get(
+            f"{_prio_url()}/ACCOUNTS?$filter={flt}&$select=ACCNAME,ACCDES&$top=15",
+            headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=10,
+        )
+        r.raise_for_status()
+        accounts = [{"accname": a["ACCNAME"], "accdes": a.get("ACCDES", "")}
+                    for a in r.json().get("value", [])]
+        return jsonify({"ok": True, "accounts": accounts})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e), "accounts": []}), 500
+
+
+@app.route("/api/receipts/bank-line/record-action", methods=["POST"])
+def bank_line_record_action():
+    """Record a manual action (journal / transfer) for a bank line and mark it done immediately.
+
+    Adds to the action queue and marks done in one step — no intermediate pending state.
+    The item then appears in the done-list shown in "פעולות שנשלחו לפריוריטי".
+    """
+    try:
+        data       = request.get_json(force=True) or {}
+        txn_id     = str(data.get("txn_id",     "")).strip()
+        action     = str(data.get("action",     "journal")).strip()  # 'journal' or 'transfer'
+        details    = str(data.get("details",    "")).strip()
+        sum1       = data.get("sum1", 0)
+        direction  = str(data.get("direction",  "-")).strip()
+        branchname = str(data.get("branchname", "")).strip()
+        bank_desc  = str(data.get("bank_desc",  "")).strip()
+        curdate    = str(data.get("curdate",    "")).strip()
+
+        if not txn_id:
+            return jsonify({"ok": False, "error": "Missing txn_id"}), 400
+
+        if action_queue_db:
+            item = action_queue_db.add_item(
+                fncnum=txn_id,
+                curdate=curdate,
+                details=details,
+                accname1="",
+                accdes1=bank_desc,
+                accname2="",
+                accdes2="",
+                sum1=sum1,
+                direction=direction,
+                branchname=branchname,
+                action=action,
+            )
+            if item:
+                action_queue_db.mark_done(item["id"])
+
+        # Hide from unmatched list
+        processed = _load_processed_txns()
+        processed.add(txn_id)
+        _save_processed_txns(processed)
+
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/customer-search", methods=["GET"])
+def customer_search():
+    """Search customers who have a CINVOICES invoice matching the given amount and branch.
+
+    Query params:
+      amount     — exact invoice amount to match (from bank line SUM1)
+      branchname — branch filter (optional)
+    """
+    try:
+        amount_str = (request.args.get("amount") or "").strip()
+        branchname = (request.args.get("branchname") or "").strip()
+        curdate    = (request.args.get("curdate") or "").strip()[:10]  # bank line date for date-proximity check
+
+        if not amount_str:
+            return jsonify({"ok": True, "results": []})
+        try:
+            amount = float(amount_str)
+        except ValueError:
+            return jsonify({"ok": True, "results": []})
+
+        flt = f"TOTPRICE eq {amount} and STATDES ne 'מבוטלת'"
+        if branchname and branchname not in ("000", "all"):
+            branch_safe = branchname.replace("'", "")
+            flt += f" and BRANCHNAME eq '{branch_safe}'"
+
+        r = http_requests.get(
+            f"{_prio_url()}/CINVOICES?$filter={flt}"
+            "&$select=CUSTNAME,CDES,IVNUM,IVDATE,TOTPRICE,STATDES,BRANCHNAME"
+            "&$orderby=IVDATE desc&$top=20",
+            headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=20,
+        )
+        r.raise_for_status()
+        items = r.json().get("value", [])
+
+        seen = {}
+        for inv in items:
+            custname = (inv.get("CUSTNAME") or "").strip()
+            if not custname or custname in seen:
+                continue
+            inv_branch = (inv.get("BRANCHNAME") or "").strip()
+            accname_full = f"{custname}-{inv_branch}" if inv_branch and inv_branch != "000" else custname
+            seen[custname] = {
+                "accname":    accname_full,
+                "accdes":     (inv.get("CDES") or "").strip(),
+                "branchname": inv_branch,
+                "ivnum":      inv.get("IVNUM", ""),
+                "ivdate":     inv.get("IVDATE", ""),
+                "totprice":   inv.get("TOTPRICE", 0),
+                "statdes":    inv.get("STATDES", ""),
+            }
+
+        # Check Priority for existing final receipts at this amount for any of the found customers
+        if seen:
+            try:
+                or_clauses = " or ".join(
+                    f"ACCNAME eq '{v['accname']}'" for v in seen.values()
+                )
+                rc_r = http_requests.get(
+                    f"{_prio_url()}/TINVOICES?$filter=({or_clauses}) and TOTPRICE eq {amount} and FINAL eq 'Y'"
+                    "&$select=IVNUM,ACCNAME,FNCNUM,IVDATE&$orderby=IVDATE desc&$top=20",
+                    headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=10,
+                )
+                if rc_r.status_code == 200:
+                    from collections import defaultdict as _dd
+                    from datetime import datetime as _dt
+                    rc_by_acc = _dd(list)
+                    for item in rc_r.json().get("value", []):
+                        acc   = item.get("ACCNAME", "")
+                        ivnum = item.get("IVNUM", "")
+                        if acc and ivnum:
+                            rc_by_acc[acc].append({
+                                "rc_ivnum": ivnum,
+                                "fncnum":   item.get("FNCNUM", "") or "",
+                                "ivdate":   (item.get("IVDATE", "") or "")[:10],
+                            })
+                    for cust_data in seen.values():
+                        candidates = rc_by_acc.get(cust_data["accname"], [])
+                        if not candidates:
+                            continue
+                        # Pick the closest receipt to the bank line date (within 30 days)
+                        best, best_diff = None, 31
+                        for rc in candidates:
+                            if curdate and rc["ivdate"]:
+                                try:
+                                    diff = abs((_dt.strptime(curdate, "%Y-%m-%d") - _dt.strptime(rc["ivdate"], "%Y-%m-%d")).days)
+                                except ValueError:
+                                    diff = 0  # no date info — accept it
+                            else:
+                                diff = 0  # no date to compare — accept it
+                            if diff < best_diff:
+                                best, best_diff = rc, diff
+                        if best and best_diff <= 30:
+                            cust_data["existing_rc"]     = best["rc_ivnum"]
+                            cust_data["existing_fncnum"] = best["fncnum"]
+                            cust_data["existing_ivdate"] = best["ivdate"]
+            except Exception:
+                pass  # non-fatal — don't break the whole search
+
+        return jsonify({"ok": True, "results": list(seen.values())[:5]})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/open-invoices", methods=["GET"])
+def receipts_open_invoices():
+    """Find CINVOICES matching customer + amount for receipt modal auto-matching.
+
+    Query params:
+      accname    — customer code (base, no branch suffix)
+      amount     — expected amount (from bank line)
+      branchname — branch filter (optional)
+    """
+    try:
+        accname    = (request.args.get("accname")    or "").strip()
+        amount_str = (request.args.get("amount")     or "").strip()
+        branchname = (request.args.get("branchname") or "").strip()
+
+        if not accname:
+            return jsonify({"ok": True, "invoices": []})
+
+        # Use base code (no branch suffix)
+        base_accname = accname.split("-")[0] if "-" in accname else accname
+
+        flt = f"CUSTNAME eq '{base_accname}' and STATDES ne 'מבוטלת'"
+        if amount_str:
+            try:
+                amount = float(amount_str)
+                flt += f" and TOTPRICE eq {amount}"
+            except ValueError:
+                pass
+
+        # Try with branch filter first; fall back without if no results
+        filters_to_try = []
+        if branchname and branchname not in ("000", "all"):
+            branch_safe = branchname.replace("'", "")
+            filters_to_try.append(f"{flt} and BRANCHNAME eq '{branch_safe}'")
+        filters_to_try.append(flt)
+
+        invoices = []
+        for f_try in filters_to_try:
+            r = http_requests.get(
+                f"{_prio_url()}/CINVOICES?$filter={f_try}"
+                "&$select=IVNUM,CUSTNAME,CDES,IVDATE,TOTPRICE,DIFF,STATDES,BRANCHNAME"
+                "&$orderby=IVDATE desc&$top=10",
+                headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=20,
+            )
+            r.raise_for_status()
+            invoices = r.json().get("value", [])
+            if invoices:
+                break
+
+        return jsonify({"ok": True, "invoices": invoices})
+    except Exception as e:
+        logger.warning(f"open-invoices error: {e}")
+        return jsonify({"ok": False, "error": str(e), "invoices": []}), 500
 
 
 # ── Action queue (non-receipt bank transactions pending treatment) ──────────
@@ -4613,12 +5351,28 @@ def get_done_action_queue():
 @app.route("/api/receipts/<receipt_id>/delete", methods=["DELETE", "POST"])
 def delete_receipt_endpoint(receipt_id):
     """Remove a receipt from the local queue (approved/pending/closed).
-    If the receipt has a Priority draft ivnum (status='approved'), the caller
-    should also delete it from Priority manually — we only remove it locally."""
+    Also removes its FNCNUM from processed_txns so the bank line reappears."""
     try:
+        rec = receipts_db.get_receipt(receipt_id)
+        if rec is None:
+            return jsonify({"ok": False, "error": "קבלה לא נמצאה"}), 404
+
+        # Collect all FNCNUMs that hide this bank line, then unblock them
+        fncnums_to_release = set()
+        for field in ("fncnum", "bank_fncnum"):
+            val = rec.get(field)
+            if val:
+                fncnums_to_release.add(val)
+
         result = receipts_db.delete_receipt(receipt_id)
         if result is None:
             return jsonify({"ok": False, "error": "קבלה לא נמצאה"}), 404
+
+        if fncnums_to_release:
+            processed = _load_processed_txns()
+            processed -= fncnums_to_release
+            _save_processed_txns(processed)
+
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -4686,7 +5440,7 @@ def receipts_approved():
     try:
         limit = int(request.args.get("limit", 50))
         all_recs = receipts_db.list_all()
-        approved = [r for r in all_recs if r.get("status") == "approved"]
+        approved = [r for r in all_recs if r.get("status") in ("approved", "closed")]
         approved.sort(key=lambda r: r.get("approved_at", ""), reverse=True)
         return jsonify({"ok": True, "receipts": approved[:limit]})
     except Exception as e:
@@ -4849,16 +5603,21 @@ def receipts_close(receipt_id):
             return jsonify({"ok": False, "error": "הקבלה עוד לא נשלחה לפריוריטי"}), 400
 
         script_dir = os.path.join(os.path.dirname(__file__), "close_receipt")
+
+        # Locate node.exe — try PATH first, then common Windows install paths
+        import shutil
+        node_exe = shutil.which("node") or r"C:\Program Files\nodejs\node.exe"
+
         result = subprocess.run(
-            ["node", "close_receipt.js", priority_ivnum],
+            [node_exe, "close_receipt.js", priority_ivnum],
             cwd=script_dir,
-            capture_output=True,
-            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             timeout=90,
         )
 
-        stdout = result.stdout.strip()
-        stderr = result.stderr.strip()
+        stdout = (result.stdout or b"").decode("utf-8", errors="replace").strip()
+        stderr = (result.stderr or b"").decode("utf-8", errors="replace").strip()
         if stderr:
             app.logger.info("close_receipt stderr: %s", stderr)
 
@@ -4871,12 +5630,190 @@ def receipts_close(receipt_id):
             err = data.get("error") or stderr or "שגיאה לא ידועה"
             return jsonify({"ok": False, "error": err}), 500
 
-        # Mark receipt as closed in local DB
-        receipts_db._save_receipt({**rec, "status": "closed", "closed_at": _now_il().isoformat()})
-        return jsonify({"ok": True, "ivnum": priority_ivnum})
+        # Mark receipt as closed in local DB — store RC number and journal entry
+        fncnum   = data.get("fncnum")   or None
+        rc_ivnum = data.get("rc_ivnum") or None
+        receipts_db._save_receipt({
+            **rec,
+            "status":    "closed",
+            "closed_at": _now_il().isoformat(),
+            "fncnum":    fncnum,
+            "rc_ivnum":  rc_ivnum,
+        })
+        return jsonify({"ok": True, "ivnum": priority_ivnum, "fncnum": fncnum, "rc_ivnum": rc_ivnum})
 
     except subprocess.TimeoutExpired:
         return jsonify({"ok": False, "error": "Timeout — בדוק בפריוריטי ידנית"}), 504
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/auto-scan", methods=["POST"])
+def auto_scan_receipts():
+    """Batch-detect existing Priority final receipts for untracked credit bank lines.
+
+    Flow (2 Priority API calls total):
+      1. CINVOICES – find customers for all amounts in the request
+      2. TINVOICES – find final receipts (FINAL='Y') for those customers
+    Only auto-imports when there is exactly ONE customer match per amount+branch,
+    to avoid ambiguous matches.
+    """
+    try:
+        from collections import defaultdict
+        body = request.get_json(force=True) or {}
+        txns = body.get("transactions", [])
+        if not txns:
+            return jsonify({"ok": True, "imported": 0})
+
+        # Skip bank lines already tracked in our DB (by bank_fncnum or fncnum)
+        all_records = receipts_db.list_all()
+        tracked = {r.get("bank_fncnum") for r in all_records if r.get("bank_fncnum")}
+        tracked |= {r.get("fncnum") for r in all_records if r.get("status") in ("pending", "approved")}
+        pending = [t for t in txns if t.get("fncnum") not in tracked][:25]
+        if not pending:
+            return jsonify({"ok": True, "imported": 0})
+
+        # Group by (amount, branchname)
+        txn_by_key = defaultdict(list)
+        for t in pending:
+            key = (float(t.get("amount", 0)), (t.get("branchname") or "").strip())
+            txn_by_key[key].append(t)
+
+        # 1. CINVOICES – batch query for all unique amounts
+        unique_amounts = list({k[0] for k in txn_by_key})[:15]
+        amt_filter = " or ".join(f"TOTPRICE eq {a}" for a in unique_amounts)
+        cinv_r = http_requests.get(
+            f"{_prio_url()}/CINVOICES?$filter=({amt_filter}) and STATDES ne 'מבוטלת'"
+            "&$select=CUSTNAME,CDES,TOTPRICE,BRANCHNAME&$orderby=IVDATE desc&$top=200",
+            headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=20,
+        )
+        if cinv_r.status_code != 200:
+            return jsonify({"ok": True, "imported": 0})
+
+        # Build (amount, branch) → [customers]; keep only keys with exactly 1 match
+        cinv_by_key = defaultdict(list)
+        cinv_seen = set()
+        for inv in cinv_r.json().get("value", []):
+            custname = (inv.get("CUSTNAME") or "").strip()
+            if not custname:
+                continue
+            inv_branch = (inv.get("BRANCHNAME") or "").strip()
+            accname_full = f"{custname}-{inv_branch}" if inv_branch and inv_branch != "000" else custname
+            key = (float(inv.get("TOTPRICE", 0)), inv_branch)
+            dedup = (key, accname_full)
+            if dedup in cinv_seen:
+                continue
+            cinv_seen.add(dedup)
+            cinv_by_key[key].append({"accname": accname_full, "accdes": (inv.get("CDES") or "").strip(), "branchname": inv_branch})
+
+        single = {k: v[0] for k, v in cinv_by_key.items() if len(v) == 1 and k in txn_by_key}
+        if not single:
+            return jsonify({"ok": True, "imported": 0})
+
+        # 2. TINVOICES – batch query for final receipts
+        accnames = list({v["accname"] for v in single.values()})[:15]
+        acc_filter = " or ".join(f"ACCNAME eq '{a}'" for a in accnames)
+        amounts_filter = " or ".join(f"TOTPRICE eq {k[0]}" for k in single)
+        tinv_r = http_requests.get(
+            f"{_prio_url()}/TINVOICES?$filter=({acc_filter}) and ({amounts_filter}) and FINAL eq 'Y'"
+            "&$select=IVNUM,ACCNAME,FNCNUM,TOTPRICE,IVDATE&$orderby=IVDATE desc&$top=200",
+            headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=20,
+        )
+        if tinv_r.status_code != 200:
+            return jsonify({"ok": True, "imported": 0})
+
+        # (accname, amount) → [list of receipts] — keep ALL to find closest by date
+        tinv_map = defaultdict(list)
+        for item in tinv_r.json().get("value", []):
+            if not item.get("IVNUM"):
+                continue
+            key = (item.get("ACCNAME", ""), float(item.get("TOTPRICE", 0)))
+            tinv_map[key].append({
+                "rc_ivnum": item["IVNUM"],
+                "fncnum":   item.get("FNCNUM", "") or "",
+                "ivdate":   (item.get("IVDATE") or "")[:10],
+            })
+
+        def _closest_receipt(receipts, txn_date_str, max_days=30):
+            """Return the receipt whose IVDATE is closest to txn_date and within max_days."""
+            if not txn_date_str or not receipts:
+                return None
+            try:
+                from datetime import datetime as _dt
+                txn_d = _dt.strptime(txn_date_str[:10], "%Y-%m-%d")
+            except ValueError:
+                return None
+            best, best_diff = None, max_days + 1
+            for r in receipts:
+                try:
+                    r_d = _dt.strptime(r["ivdate"][:10], "%Y-%m-%d")
+                    diff = abs((txn_d - r_d).days)
+                    if diff < best_diff:
+                        best, best_diff = r, diff
+                except (ValueError, KeyError):
+                    continue
+            return best  # None if nothing within max_days
+
+        # Import matches — only when closest receipt is within 30 days of bank line
+        processed = _load_processed_txns()
+        imported = 0
+        for (amount, branchname), cust in single.items():
+            candidates = tinv_map.get((cust["accname"], amount), [])
+            for txn in txn_by_key[(amount, branchname)]:
+                tinv = _closest_receipt(candidates, txn.get("curdate", ""), max_days=30)
+                if not tinv:
+                    continue
+                rec = receipts_db.add_closed_receipt(
+                    bank_fncnum=txn.get("fncnum", ""),
+                    accname=cust["accname"],
+                    accdes=cust["accdes"],
+                    cashname=txn.get("cashname", ""),
+                    totprice=amount,
+                    ivdate=tinv["ivdate"] or (txn.get("curdate") or "")[:10],
+                    branchname=cust["branchname"],
+                    details="קבלה",
+                    rc_ivnum=tinv["rc_ivnum"],
+                    fncnum_journal=tinv["fncnum"],
+                )
+                if rec:
+                    processed.add(txn.get("fncnum", ""))
+                    imported += 1
+
+        if imported:
+            _save_processed_txns(processed)
+
+        return jsonify({"ok": True, "imported": imported})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/import-existing", methods=["POST"])
+def import_existing_receipt():
+    """Save an already-closed Priority receipt to the local DB so it appears in the table."""
+    try:
+        body = request.get_json(force=True) or {}
+        bank_fncnum   = body.get("bank_fncnum", "")
+        accname       = body.get("accname", "")
+        accdes        = body.get("accdes", "")
+        cashname      = body.get("cashname", "")
+        totprice      = float(body.get("totprice", 0))
+        ivdate        = body.get("ivdate", "")
+        branchname    = body.get("branchname", "")
+        rc_ivnum      = body.get("rc_ivnum", "")
+        fncnum_journal = body.get("fncnum", "")
+
+        if not rc_ivnum:
+            return jsonify({"ok": False, "error": "rc_ivnum is required"}), 400
+
+        rec = receipts_db.add_closed_receipt(
+            bank_fncnum=bank_fncnum,
+            accname=accname, accdes=accdes, cashname=cashname,
+            totprice=totprice, ivdate=ivdate, branchname=branchname,
+            details="קבלה", rc_ivnum=rc_ivnum, fncnum_journal=fncnum_journal,
+        )
+        if rec is None:
+            return jsonify({"ok": True, "duplicate": True})
+        return jsonify({"ok": True, "id": rec["id"]})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
