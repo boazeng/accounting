@@ -41,3 +41,10 @@ samconfig.toml
 nul
 entities.json
 metadata.xml
+
+# Credentials / secrets
+credentials.json
+token.json
+
+# Log files
+*.log

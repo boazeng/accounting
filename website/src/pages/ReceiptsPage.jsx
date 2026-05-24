@@ -394,9 +394,8 @@ export default function ReceiptsPage() {
                       <tr>
                         <th>תאריך</th>
                         <th>תיאור תנועה</th>
-                        <th>חשבון</th>
                         <th>סכום</th>
-                        <th>בנק</th>
+                        <th>חשבון בנק</th>
                         <th>סניף</th>
                         <th>פעולה מוצעת</th>
                       </tr>
@@ -412,9 +411,8 @@ export default function ReceiptsPage() {
                           <tr key={txn.FNCNUM}>
                             <td>{fmt(txn.CURDATE)}</td>
                             <td>{txn.DETAILS}</td>
-                            <td title={txn.ACCNAME1} className="receipts-mono">{txn.ACCDES1 || txn.ACCNAME1}</td>
                             <td><AmountCell sum1={txn.SUM1} direction={txn.direction} /></td>
-                            <td className="receipts-small" title={txn.ACCNAME2}>{txn.ACCDES2 || txn.ACCNAME2}</td>
+                            <td className="receipts-small" title={txn.bank_code}>{txn.bank_desc || txn.bank_code}</td>
                             <td>{txn.BRANCHNAME}</td>
                             <td>
                               <button

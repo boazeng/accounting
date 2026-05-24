@@ -4392,24 +4392,19 @@ _TXN_DIRECTION_MAP = {
 
 @app.route("/api/receipts/bank-transactions", methods=["GET"])
 def receipts_bank_transactions():
-    """All unmatched bank-statement FNCTRANS('הת') entries across all types.
+    """Bank statement lines from BANKLINESA that have not yet been reconciled (ERECONNUM eq 0).
 
-    Each transaction gets a txn_type field:
-      receipt      — client payment needing a TINVOICES receipt (50xxx)
-      fee          — bank fee / expense entry (620-x, 400-x …)
-      transfer     — bank-to-bank transfer
-      intercompany — חו"ז employee/shareholder
-      internal     — internal company account
-      supplier     — supplier / external company
-      loan         — loan account
-      other        — unclassified
+    Source: BANKLINESA (קליטת דפי בנק) — raw bank statement lines.
+    Unreconciled = ERECONNUM eq 0 (no journal entry matched against the line yet).
 
-    For receipt type: auto-filtered against finalized ק journal entries in Priority.
-    For other types:  filtered against a local processed_txns.json ignore list.
+    Each line gets:
+      direction      — '+' if CREDIT > 0 (money IN), '-' if DEBIT > 0 (money OUT)
+      txn_type       — 'receipt' if CREDIT > 0, 'other' if DEBIT > 0
+      suggested_action — 'receipt' or 'journal'
 
     Query params:
       days   — lookback in days (default 180)
-      branch — filter by branch code, omit or 'all' for all branches
+      branch — filter by branch code (first segment of CASHNAME), omit or 'all' for all
     """
     try:
         days = int(request.args.get("days", 180))
@@ -4419,81 +4414,98 @@ def receipts_bank_transactions():
 
         branch_safe = branch.replace("'", "") if branch and branch != "all" else ""
 
-        flt = f"FNCPATNAME eq 'הת' and CURDATE ge {since_date} and SUM1 gt 0"
-        if branch_safe:
-            flt += f" and BRANCHNAME eq '{branch_safe}'"
-
-        r_fnc = http_requests.get(
-            f"{_prio_url()}/FNCTRANS"
+        # Fetch unreconciled bank statement lines
+        flt = f"ERECONNUM eq 0 and CURDATE ge {since_date}"
+        r_lines = http_requests.get(
+            f"{_prio_url()}/BANKLINESA"
             f"?$filter={flt}"
-            "&$select=FNCNUM,CURDATE,ACCNAME1,ACCDES1,ACCNAME2,ACCDES2,SUM1,DETAILS,BRANCHNAME"
+            "&$select=CASHNAME,BPYEAR,CURDATE,DETAILS,CREDIT,DEBIT,BTCODE,FNCNUM,BANKPAGE,KLINE"
             "&$orderby=CURDATE desc&$top=500",
             headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=30,
         )
-        r_fnc.raise_for_status()
-        raw_txns = r_fnc.json().get("value", [])
+        r_lines.raise_for_status()
+        raw_lines = r_lines.json().get("value", [])
 
-        def _is_bank_account(code):
-            seg = (code or "").split("-")[0]
-            return len(seg) == 4 and seg.startswith("40") and seg.isdigit()
+        # Client-side branch filter (CASHNAME format: "branch-bankcode")
+        if branch_safe:
+            raw_lines = [l for l in raw_lines if (l.get("CASHNAME") or "").startswith(f"{branch_safe}-")]
 
-        # Only keep lines where ACCNAME2 is a bank account (40xx) — confirms this is
-        # a real bank-statement entry, not an unrelated journal entry.
-        bank_txns = [t for t in raw_txns if _is_bank_account(t.get("ACCNAME2", ""))]
-
-        # Classify each transaction
-        for t in bank_txns:
-            ttype = _bank_txn_type(t.get("ACCNAME1", ""))
-            t["txn_type"] = ttype
-            t["suggested_action"] = _TXN_ACTION_MAP.get(ttype, "journal")
-            t["direction"] = _TXN_DIRECTION_MAP.get(ttype, "")
-
-        # Build cross-reference set for receipt type:
-        # finalized receipts (ק) have bank=ACCNAME1, customer=ACCNAME2 (opposite of הת).
-        receipted_set = set()
+        # Fetch BANKPAGES to enrich with bank name, branch, account number
+        bankpage_info = {}
         try:
-            r_flt = f"FNCPATNAME eq 'ק' and CURDATE ge {since_date} and SUM1 gt 0"
-            if branch_safe:
-                r_flt += f" and BRANCHNAME eq '{branch_safe}'"
-            r_rec = http_requests.get(
-                f"{_prio_url()}/FNCTRANS?$filter={r_flt}&$select=ACCNAME1,ACCNAME2,SUM1&$top=1000",
-                headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=30,
-            )
-            if r_rec.status_code == 200:
-                for rec in r_rec.json().get("value", []):
-                    receipted_set.add((
-                        rec.get("ACCNAME2", ""),
-                        rec.get("ACCNAME1", ""),
-                        round(float(rec.get("SUM1") or 0), 2),
-                    ))
+            unique_pages = list({l["BANKPAGE"] for l in raw_lines if l.get("BANKPAGE")})[:100]
+            if unique_pages:
+                page_filter = " or ".join([f"BANKPAGE eq {p}" for p in unique_pages])
+                r_pages = http_requests.get(
+                    f"{_prio_url()}/BANKPAGES?$filter=({page_filter})"
+                    "&$select=BANKPAGE,CASHNAME,BANKNAME,BRANCH,PAYACCOUNT",
+                    headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=30,
+                )
+                if r_pages.status_code == 200:
+                    for p in r_pages.json().get("value", []):
+                        bankpage_info[p["BANKPAGE"]] = p
         except Exception:
             pass
 
         processed_ids = _load_processed_txns()
         action_queued_ids = action_queue_db.get_fncnums() if action_queue_db else set()
 
+        # Collect all branches for the branch dropdown
+        all_branches = sorted({(l.get("CASHNAME") or "").split("-")[0]
+                                for l in raw_lines if l.get("CASHNAME")})
+
         txns = []
-        for t in bank_txns:
-            fncnum = t.get("FNCNUM", "")
+        for line in raw_lines:
+            bp   = line.get("BANKPAGE", "")
+            kl   = line.get("KLINE", "")
+            txn_id = f"BP{bp}-{kl}"
 
-            # Manually marked as processed
-            if fncnum in processed_ids:
+            if txn_id in processed_ids:
+                continue
+            if txn_id in action_queued_ids:
                 continue
 
-            # In the action queue (non-receipt actions pending)
-            if fncnum in action_queued_ids:
-                continue
+            credit = float(line.get("CREDIT") or 0)
+            debit  = float(line.get("DEBIT")  or 0)
+            amount = credit if credit > 0 else debit
+            direction = "+" if credit > 0 else "-"
+            txn_type  = "receipt" if credit > 0 else "other"
 
-            # Receipt type: skip if finalized receipt already exists in Priority
-            if t["txn_type"] == "receipt":
-                key = (t.get("ACCNAME1", ""), t.get("ACCNAME2", ""), round(float(t.get("SUM1") or 0), 2))
-                if key in receipted_set:
-                    continue
+            page_info = bankpage_info.get(bp, {})
+            bank_name    = page_info.get("BANKNAME", "")
+            bank_branch  = page_info.get("BRANCH", "")
+            pay_account  = page_info.get("PAYACCOUNT", "")
+            cashname     = line.get("CASHNAME", "")
+            branch_code  = cashname.split("-")[0] if cashname else ""
+            if bank_name:
+                bank_desc = f"{bank_name} {bank_branch}/{pay_account}".strip(" /")
+            else:
+                bank_desc = cashname
 
-            t["already_queued"] = receipts_db.is_duplicate(fncnum)
-            txns.append(t)
+            txns.append({
+                "FNCNUM":           txn_id,
+                "CURDATE":          line.get("CURDATE"),
+                "DETAILS":          line.get("DETAILS"),
+                "CASHNAME":         cashname,
+                "bank_code":        cashname,
+                "bank_desc":        bank_desc,
+                "other_code":       "",
+                "other_desc":       line.get("DETAILS", ""),
+                "BRANCHNAME":       branch_code,
+                "SUM1":             amount,
+                "CREDIT":           credit,
+                "DEBIT":            debit,
+                "direction":        direction,
+                "txn_type":         txn_type,
+                "suggested_action": _TXN_ACTION_MAP.get(txn_type, "journal"),
+                "FNCPATNAME":       "",
+                "already_queued":   False,
+                "BANKPAGE":         bp,
+                "KLINE":            kl,
+            })
 
-        return jsonify({"ok": True, "transactions": txns, "days": days, "since": since_date[:10], "branch": branch})
+        return jsonify({"ok": True, "transactions": txns, "days": days,
+                        "since": since_date[:10], "branch": branch})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
