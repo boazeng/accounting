@@ -78,7 +78,6 @@ export default function ReceiptsPage() {
   const [journalSuccess, setJournalSuccess]           = useState('')
   const [journalAccSuggestions, setJournalAccSuggestions] = useState([])
   const [journalAccSearching, setJournalAccSearching]     = useState(false)
-  const [journalSaveTpl, setJournalSaveTpl]               = useState(true)
 
   // Invoice receipt modal state
   const [irModal, setIrModal]         = useState(null)
@@ -503,7 +502,7 @@ export default function ReceiptsPage() {
           details:             journalDetails,
           ivdate:              (txn.CURDATE || '').slice(0, 10),
           branchname:          txn.BRANCHNAME,
-          save_template:       journalSaveTpl,
+          save_template:       true,
         }),
       })
       const data = await resp.json()
@@ -603,11 +602,14 @@ export default function ReceiptsPage() {
             )}
 
             {/* ── Section A2: Journal / transfer actions sent to Priority ── */}
-            {doneActions.length > 0 && (
+            {(() => {
+              const sentJournals = doneActions.filter(it => it.priority_fncnum && it.action !== 'receipt')
+              if (sentJournals.length === 0) return null
+              return (
               <section className="receipts-section">
                 <div className="receipts-section-header">
                   <h2>פקודות יומן שנשלחו לפריוריטי</h2>
-                  <span className="receipts-badge" style={{ background: '#b45309' }}>{doneActions.length}</span>
+                  <span className="receipts-badge" style={{ background: '#b45309' }}>{sentJournals.length}</span>
                 </div>
                 <div className="receipts-table-wrap">
                   <table className="receipts-table">
@@ -623,7 +625,7 @@ export default function ReceiptsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {doneActions.map(item => (
+                      {sentJournals.map(item => (
                         <tr key={item.id} style={{ opacity: 0.75 }}>
                           <td>{fmt(item.curdate)}</td>
                           <td>{item.details}</td>
@@ -638,7 +640,7 @@ export default function ReceiptsPage() {
                           </td>
                           <td>{item.branchname}</td>
                           <td className="receipts-mono" style={{ color: '#6c5ce7', fontWeight: 700 }}>
-                            {item.priority_fncnum || '—'}
+                            {item.priority_fncnum}
                           </td>
                         </tr>
                       ))}
@@ -646,7 +648,8 @@ export default function ReceiptsPage() {
                   </table>
                 </div>
               </section>
-            )}
+              )
+            })()}
 
             {/* ── Section B: Unmatched bank lines ── */}
             <section className="receipts-section">
@@ -1244,18 +1247,7 @@ export default function ReceiptsPage() {
               />
             </div>
 
-            {/* Save template checkbox */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0', fontSize: 13 }}>
-              <input
-                type="checkbox"
-                id="journal-save-tpl"
-                checked={journalSaveTpl}
-                onChange={e => setJournalSaveTpl(e.target.checked)}
-              />
-              <label htmlFor="journal-save-tpl" style={{ cursor: 'pointer', color: '#374151' }}>
-                זכור חשבון נגדי זה לתנועות דומות בעתיד
-              </label>
-            </div>
+
 
             {journalError   && <p className="receipts-error"  style={{ margin: '8px 0' }}>{journalError}</p>}
             {journalSuccess && <p style={{ margin: '8px 0', color: '#15803d', fontWeight: 600 }}>{journalSuccess}</p>}
