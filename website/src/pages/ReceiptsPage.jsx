@@ -402,7 +402,11 @@ export default function ReceiptsPage() {
         return
       }
       setIrDetails(res.details || '')
-      setIrPrevNote(`הועתק מ-${res.ivnum} (${fmt((res.ivdate || '').slice(0, 10))})`)
+      const noteBase = `הועתק מ-${res.ivnum} (${fmt((res.ivdate || '').slice(0, 10))})`
+      setIrPrevNote(res.same_month
+        ? `⚠ קיימת חשבונית קבלה לחודש הנוכחי (${res.ivnum}) — האם אכן להפיק שוב?`
+        : noteBase
+      )
       if (res.items?.length > 0) {
         // Scale prices so total = bank transaction amount (current payment)
         const target = bankAmount || 0
@@ -778,9 +782,12 @@ export default function ReceiptsPage() {
                           <td>
                             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                               <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 8,
-                                background: '#fef3c7', color: '#92400e', fontWeight: 600 }}>
-                                טיוטה: {rec.priority_ivnum}
+                                background: rec.doc_type === 'invoice_receipt' ? '#f5f3ff' : '#fef3c7',
+                                color:      rec.doc_type === 'invoice_receipt' ? '#7c3aed'  : '#92400e',
+                                fontWeight: 600 }}>
+                                {rec.doc_type === 'invoice_receipt' ? 'חשבונית קבלה' : 'טיוטה'}: {rec.priority_ivnum}
                               </span>
+                              {rec.doc_type !== 'invoice_receipt' && (
                               <button
                                 className="receipts-btn receipts-btn-approve"
                                 style={{ fontSize: 12, padding: '3px 10px' }}
@@ -789,6 +796,7 @@ export default function ReceiptsPage() {
                               >
                                 {closing === rec.id ? 'סוגר...' : 'סגור קבלה'}
                               </button>
+                              )}
                               <button
                                 className="receipts-btn receipts-btn-reject"
                                 style={{ fontSize: 12, padding: '3px 8px' }}

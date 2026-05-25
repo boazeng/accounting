@@ -37,11 +37,15 @@ def get_suggestion(details):
     return None, None
 
 
-def save_template(details, counterpart_account, counterpart_desc=""):
+def save_template(details, counterpart_account, counterpart_desc="", branchname=""):
     data = _load_templates()
     key = _normalize(details)
+    # Strip branch suffix so template works across branches (e.g. "620-0-103" → "620-0")
+    base_acc = counterpart_account
+    if branchname and base_acc.endswith(f"-{branchname}"):
+        base_acc = base_acc[: -len(f"-{branchname}")]
     data[key] = {
-        "counterpart_account": counterpart_account,
+        "counterpart_account": base_acc,
         "counterpart_desc": counterpart_desc,
         "updated_at": datetime.now().isoformat(),
     }

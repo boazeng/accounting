@@ -4829,16 +4829,27 @@ def last_einvoice():
             for it in line_items
         ]
 
+        # Check if the found invoice is from the same month as today (possible duplicate)
+        inv_ivdate = inv.get("IVDATE", "")
+        same_month = False
+        try:
+            inv_d = datetime.strptime(inv_ivdate[:7], "%Y-%m")
+            now_d = _now_il().replace(day=1)
+            same_month = (inv_d.year == now_d.year and inv_d.month == now_d.month)
+        except Exception:
+            pass
+
         return jsonify({
             "ok":           True,
             "found":        True,
             "ivnum":        ivnum,
-            "ivdate":       inv.get("IVDATE", ""),
+            "ivdate":       inv_ivdate,
             "details":      inv.get("DETAILS", ""),
             "details_next": _advance_month(inv.get("DETAILS", "")),
             "branchname":   inv.get("BRANCHNAME", ""),
             "totprice":     inv.get("TOTPRICE", 0),
             "items":        advanced_items,
+            "same_month":   same_month,
         })
     except http_requests.exceptions.HTTPError as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -4953,7 +4964,7 @@ def bank_line_create_invoice_receipt():
             doc_type='invoice_receipt',
         )
         if rec:
-            receipts_db.approve_receipt(rec["id"], priority_ivnum)
+            receipts_db.close_receipt_direct(rec["id"], priority_ivnum)
 
         # 4. Mark bank line processed
         processed = _load_processed_txns()
@@ -5163,50 +5174,67 @@ def bank_line_create_journal():
 
 @app.route("/api/receipts/journal/<priority_fncnum>/finalize", methods=["POST"])
 def journal_finalize(priority_fncnum):
-    """Register journal entry (רישום תנועת יומן) — PATCH FINAL='Y' then re-fetch to get final FNCNUM."""
+    """Register journal entry (רישום תנועת יומן).
+    Fetches the draft from Priority, deletes it, then re-creates with FINAL='Y'
+    so Priority assigns a proper sequential FNCNUM (e.g. 26007xxx).
+    """
     try:
-        # Step 1: PATCH FINAL='Y' to post the journal entry
-        patch_resp = http_requests.patch(
-            f"{_prio_url()}/FNCTRANS('{priority_fncnum}')",
-            json={"FINAL": "Y"},
-            headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=20,
-        )
-        # If entry is already final Priority may return 4xx — that's OK, continue to re-fetch
-        already_final = not patch_resp.ok
-
-        # Step 2: Re-fetch the entry to get the actual FNCNUM after posting
+        # Step 1: Fetch draft details including line items
         get_resp = http_requests.get(
-            f"{_prio_url()}/FNCTRANS('{priority_fncnum}')?$select=FNCNUM,FINAL",
+            f"{_prio_url()}/FNCTRANS('{priority_fncnum}')"
+            "?$expand=FNCITEMS_SUBFORM($select=ACCNAME,DEBIT1,CREDIT1,DETAILS)",
             headers={"Accept": "application/json", "OData-Version": "4.0"},
             auth=_prio_auth(), timeout=20, verify=False,
         )
-        final_fncnum = priority_fncnum
-        if get_resp.ok:
-            got = get_resp.json()
-            entry_final = got.get("FINAL", "")
-            fetched_fncnum = got.get("FNCNUM") or priority_fncnum
-            final_fncnum = fetched_fncnum
-            if entry_final != "Y" and already_final:
-                # PATCH failed and entry is not final — real error
-                try:
-                    detail = patch_resp.json()
-                except Exception:
-                    detail = patch_resp.text
-                logger.error(f"journal_finalize PATCH failed for {priority_fncnum}: {detail}")
-                return jsonify({"ok": False, "error": f"HTTP {patch_resp.status_code}", "detail": detail}), 500
-        elif already_final:
-            # PATCH failed and GET also failed — raise the original patch error
-            patch_resp.raise_for_status()
+        get_resp.raise_for_status()
+        draft = get_resp.json()
+
+        fncdate    = (draft.get("FNCDATE") or "")[:10]
+        branchname = draft.get("BRANCHNAME", "")
+        details    = draft.get("DETAILS", "")
+        items      = draft.get("FNCITEMS_SUBFORM") or []
+
+        if not items:
+            return jsonify({"ok": False, "error": "לא נמצאו שורות בתנועה — אי אפשר לרשום"}), 422
+
+        # Step 2: Create new FNCTRANS with FINAL='Y' to get a proper sequential FNCNUM.
+        # Priority does not allow DELETE on drafts via OData, so the old T-prefixed entry
+        # stays but it was never processed through Priority's accounting engine.
+        payload = {
+            "FNCDATE":    fncdate,
+            "BALDATE":    fncdate,
+            "BRANCHNAME": branchname,
+            "DETAILS":    details,
+            "FINAL":      "Y",
+            "FNCITEMS_SUBFORM": [
+                {
+                    "ACCNAME":  it.get("ACCNAME", ""),
+                    "DEBIT1":   it.get("DEBIT1", 0),
+                    "CREDIT1":  it.get("CREDIT1", 0),
+                    "DETAILS":  it.get("DETAILS") or details,
+                }
+                for it in items
+            ],
+        }
+        post_resp = http_requests.post(
+            f"{_prio_url()}/FNCTRANS",
+            json=payload,
+            headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=20,
+        )
+        post_resp.raise_for_status()
+        result     = post_resp.json()
+        final_fncnum = result.get("FNCNUM") or priority_fncnum
 
         if action_queue_db:
             action_queue_db.mark_final_by_priority_fncnum(priority_fncnum, final_fncnum)
         return jsonify({"ok": True, "fncnum": final_fncnum, "draft_fncnum": priority_fncnum})
+
     except http_requests.exceptions.HTTPError as e:
         try:
             detail = e.response.json()
         except Exception:
             detail = str(e)
-        logger.error(f"journal_finalize PATCH failed for {priority_fncnum}: {detail}")
+        logger.error(f"journal_finalize error for {priority_fncnum}: {detail}")
         return jsonify({"ok": False, "error": str(e), "detail": detail}), 500
     except Exception as e:
         logger.error(f"journal_finalize error for {priority_fncnum}: {e}")

@@ -73,6 +73,21 @@ def approve_receipt(receipt_id, priority_ivnum):
     return None
 
 
+def close_receipt_direct(receipt_id, priority_ivnum):
+    """Mark a receipt as closed immediately (for EINVOICES which are final on creation)."""
+    records = _load()
+    now = datetime.now().isoformat()
+    for r in records:
+        if r.get("id") == receipt_id:
+            r["status"] = "closed"
+            r["priority_ivnum"] = priority_ivnum
+            r["approved_at"] = now
+            r["closed_at"] = now
+            _save(records)
+            return r
+    return None
+
+
 def reject_receipt(receipt_id, reason=""):
     records = _load()
     for r in records:
