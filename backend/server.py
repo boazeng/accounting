@@ -263,6 +263,18 @@ except Exception as _aq_db_err:
     logger.error(f"action_queue_db load FAILED: {_aq_db_err}")
     action_queue_db = None
 
+# Load accounts cache database module
+try:
+    ac_db_path = PROJECT_ROOT / "database" / "receipts" / "accounts_cache_db.py"
+    spec_ac_db = importlib.util.spec_from_file_location("accounts_cache_db", ac_db_path)
+    accounts_cache_db = importlib.util.module_from_spec(spec_ac_db)
+    sys.modules["accounts_cache_db"] = accounts_cache_db
+    spec_ac_db.loader.exec_module(accounts_cache_db)
+    logger.info(f"accounts_cache_db loaded from {ac_db_path}")
+except Exception as _ac_db_err:
+    logger.error(f"accounts_cache_db load FAILED: {_ac_db_err}")
+    accounts_cache_db = None
+
 # Load journal-templates database module
 try:
     jt_db_path = PROJECT_ROOT / "database" / "receipts" / "journal_templates_db.py"
@@ -2859,7 +2871,9 @@ def sync_all_accounts():
             if len(rows) < 1000:
                 break
             skip += 1000
-        delivery_notes_db.save_full_accounts_cache(all_accounts)
+        if not accounts_cache_db:
+            return jsonify({"ok": False, "error": "accounts_cache_db not available"}), 500
+        accounts_cache_db.save_accounts_cache(all_accounts)
         return jsonify({"ok": True, "count": len(all_accounts)})
     except Exception as e:
         logger.error(f"Sync all accounts failed: {e}")
@@ -2870,7 +2884,9 @@ def sync_all_accounts():
 def all_accounts_status():
     """Return cache status for the full accounts list."""
     try:
-        cached = delivery_notes_db.get_full_accounts_cache()
+        if not accounts_cache_db:
+            return jsonify({"ok": True, "count": 0, "updatedAt": None})
+        cached = accounts_cache_db.get_accounts_cache()
         if not cached:
             return jsonify({"ok": True, "count": 0, "updatedAt": None})
         return jsonify({"ok": True, "count": cached["count"], "updatedAt": cached["updated_at"]})
@@ -4962,15 +4978,18 @@ def bank_line_create_invoice_receipt():
         key            = f"IVNUM='{priority_ivnum}',IVTYPE='{ivtype}',DEBIT='{debit}'"
 
         # 2. POST each line item to EINVOICEITEMS_SUBFORM
-        # Frontend sends VAT-inclusive prices (= bank amount); divide by 1.17 so Priority's total == bank amount
+        # Frontend sends VAT-inclusive prices; divide by 1.17 to get pre-VAT price for Priority
         VAT_RATE = 0.17
+        invoice_total = 0.0
         for item in items:
             inclusive = float(item.get("PRICE", 0))
+            tquant    = float(item.get("TQUANT", 1))
             pre_vat   = round(inclusive / (1 + VAT_RATE), 2)
+            invoice_total += inclusive * tquant
             item_payload = {
                 "PARTNAME": str(item.get("PARTNAME", "000")),
                 "PDES":     str(item.get("PDES", "")),
-                "TQUANT":   float(item.get("TQUANT", 1)),
+                "TQUANT":   tquant,
                 "PRICE":    pre_vat,
             }
             try:
@@ -4981,22 +5000,29 @@ def bank_line_create_invoice_receipt():
             except Exception as item_err:
                 logger.warning(f"EINVOICEITEMS_SUBFORM item failed (non-fatal): {item_err}")
 
+        # Use actual invoice total (from items) for payment — not the bank transaction amount
+        pay_amount = round(invoice_total, 2) if invoice_total > 0 else amount
+
         # 3. POST payment to EPAYMENT2_SUBFORM — payment type 3 = bank transfer
         epay_payload = {
             "PAYMENTCODE": "3",
             "PAYDATE":     ivdate,
-            "QPRICE":      amount,
-            "TOTPRICE":    amount,
+            "QPRICE":      pay_amount,
+            "FIRSTPAY":    pay_amount,
             "CASHNAME":    cashname,
             "DETAILS":     details,
         }
-        try:
-            http_requests.post(
-                f"{_prio_url()}/EINVOICES({key})/EPAYMENT2_SUBFORM",
-                json=epay_payload, headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=15,
-            ).raise_for_status()
-        except Exception as pay_err:
-            logger.warning(f"EPAYMENT2_SUBFORM failed (non-fatal): {pay_err}")
+        epay_resp = http_requests.post(
+            f"{_prio_url()}/EINVOICES({key})/EPAYMENT2_SUBFORM",
+            json=epay_payload, headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=15,
+        )
+        if not epay_resp.ok:
+            try:
+                epay_err = epay_resp.json()
+            except Exception:
+                epay_err = epay_resp.text
+            logger.error(f"EPAYMENT2_SUBFORM failed {epay_resp.status_code}: {epay_err}")
+            return jsonify({"ok": False, "error": f"EPAYMENT2_SUBFORM שגיאה: {epay_err}", "priority_ivnum": priority_ivnum}), 500
 
         # 4. Save to receipts_db
         rec = receipts_db.add_receipt(
@@ -5207,6 +5233,25 @@ def bank_line_create_journal():
         processed.add(txn_id)
         _save_processed_txns(processed)
 
+        # Async: run bank reconciliation (BANKRECONSP) in background — non-blocking
+        if fncnum and cashname:
+            try:
+                import threading, subprocess, shutil
+                script_dir = os.path.join(os.path.dirname(__file__), "close_receipt")
+                node_exe = shutil.which("node") or r"C:\Program Files\nodejs\node.exe"
+                def _run_recon():
+                    try:
+                        subprocess.run(
+                            [node_exe, "bank_recon.js", fncnum, cashname],
+                            cwd=script_dir, timeout=120,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        )
+                    except Exception as ex:
+                        logger.warning(f"bank_recon background: {ex}")
+                threading.Thread(target=_run_recon, daemon=True).start()
+            except Exception as ex:
+                logger.warning(f"bank_recon launch failed (non-fatal): {ex}")
+
         return jsonify({"ok": True, "fncnum": fncnum})
 
     except http_requests.exceptions.HTTPError as e:
@@ -5221,45 +5266,87 @@ def bank_line_create_journal():
 
 @app.route("/api/receipts/journal/<priority_fncnum>/finalize", methods=["POST"])
 def journal_finalize(priority_fncnum):
-    """Register journal entry (רישום תנועת יומן) via PATCH FINAL='Y'.
-    If the entry is already FINAL='Y' in Priority (e.g. T-prefixed entries that were
-    previously patched), we skip the PATCH and just mark locally as final.
-    Priority OData does not support CLOSEANFNCTRANS or creating entries with FINAL='Y',
-    so PATCH is the only available mechanism; the FNCNUM stays T-prefixed.
+    """Register a journal entry via Web SDK (CLOSEANFNCTRANS via WCF — not OData).
+    Falls back to manual confirmation if Web SDK fails.
+    Body (optional): {"final_fncnum": "26007xxx"} to manually confirm without SDK call.
     """
+    import subprocess, shutil
     try:
-        # Step 1: Fetch current state
-        get_resp = http_requests.get(
-            f"{_prio_url()}/FNCTRANS('{priority_fncnum}')?$select=FNCNUM,FINAL",
+        data = request.get_json(force=True) or {}
+        manual_fncnum = (data.get("final_fncnum") or "").strip()
+
+        # If user provided a manual number, just save it (no SDK call)
+        if manual_fncnum:
+            if action_queue_db:
+                action_queue_db.mark_final_by_priority_fncnum(priority_fncnum, manual_fncnum)
+            return jsonify({"ok": True, "fncnum": manual_fncnum, "draft_fncnum": priority_fncnum})
+
+        # Check current state in Priority via direct key lookup (FNCTRANS $filter doesn't work)
+        check_resp = http_requests.get(
+            f"{_prio_url()}/FNCTRANS('{priority_fncnum}')?$select=FNCTRANS,FNCNUM,FINAL",
             headers={"Accept": "application/json", "OData-Version": "4.0"},
-            auth=_prio_auth(), timeout=20, verify=False,
+            auth=_prio_auth(), timeout=15, verify=False,
         )
-        get_resp.raise_for_status()
-        current = get_resp.json()
-        already_final = current.get("FINAL") == "Y"
+        already_final = False
+        current_fncnum = priority_fncnum
+        internal_key = None
+        if check_resp.ok:
+            rec = check_resp.json()
+            already_final = rec.get("FINAL") == "Y"
+            current_fncnum = rec.get("FNCNUM") or priority_fncnum
+            internal_key = rec.get("FNCTRANS")
 
-        # Step 2: PATCH FINAL='Y' only if not already final
-        if not already_final:
-            patch_resp = http_requests.patch(
-                f"{_prio_url()}/FNCTRANS('{priority_fncnum}')",
-                json={"FINAL": "Y"},
-                headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=20,
-            )
-            patch_resp.raise_for_status()
+        if already_final:
+            # Already registered — try to find the sequential FNCNUM by internal key
+            final_fncnum = current_fncnum
+            if internal_key:
+                seq_resp = http_requests.get(
+                    f"{_prio_url()}/FNCTRANS?$filter=FNCTRANS eq {internal_key} and FINAL eq 'Y'"
+                    "&$select=FNCNUM,FINAL&$orderby=FNCNUM desc&$top=5",
+                    headers={"Accept": "application/json", "OData-Version": "4.0"},
+                    auth=_prio_auth(), timeout=15, verify=False,
+                )
+                if seq_resp.ok:
+                    for entry in seq_resp.json().get("value", []):
+                        fn = entry.get("FNCNUM", "")
+                        if fn and not fn.startswith("T"):
+                            final_fncnum = fn
+                            break
+            if action_queue_db:
+                action_queue_db.mark_final_by_priority_fncnum(priority_fncnum, final_fncnum)
+            return jsonify({"ok": True, "fncnum": final_fncnum, "draft_fncnum": priority_fncnum, "already_registered": True})
 
-        final_fncnum = current.get("FNCNUM") or priority_fncnum
+        # Attempt automatic registration via Web SDK (close_journal.js)
+        script_dir = os.path.join(os.path.dirname(__file__), "close_receipt")
+        node_exe = shutil.which("node") or r"C:\Program Files\nodejs\node.exe"
+        result = subprocess.run(
+            [node_exe, "close_journal.js", priority_fncnum],
+            cwd=script_dir,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=90,
+        )
+        stdout = (result.stdout or b"").decode("utf-8", errors="replace").strip()
+        stderr = (result.stderr or b"").decode("utf-8", errors="replace").strip()
+        if stderr:
+            logger.info(f"close_journal stderr: {stderr}")
 
+        try:
+            sdk_data = json.loads(stdout) if stdout else {}
+        except Exception:
+            sdk_data = {}
+
+        if result.returncode != 0 or not sdk_data.get("ok"):
+            err = sdk_data.get("error") or stderr or "שגיאה לא ידועה"
+            logger.error(f"close_journal.js failed for {priority_fncnum}: {err}")
+            return jsonify({"ok": False, "error": err, "needs_manual": True}), 500
+
+        final_fncnum = sdk_data.get("final_fncnum") or priority_fncnum
         if action_queue_db:
             action_queue_db.mark_final_by_priority_fncnum(priority_fncnum, final_fncnum)
         return jsonify({"ok": True, "fncnum": final_fncnum, "draft_fncnum": priority_fncnum})
 
-    except http_requests.exceptions.HTTPError as e:
-        try:
-            detail = e.response.json()
-        except Exception:
-            detail = str(e)
-        logger.error(f"journal_finalize error for {priority_fncnum}: {detail}")
-        return jsonify({"ok": False, "error": str(e), "detail": detail}), 500
+    except subprocess.TimeoutExpired:
+        return jsonify({"ok": False, "error": "close_journal.js timed out (90s)", "needs_manual": True}), 500
     except Exception as e:
         logger.error(f"journal_finalize error for {priority_fncnum}: {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -5302,7 +5389,7 @@ def priority_accounts_search():
             return jsonify({"ok": True, "accounts": []})
 
         # Search from local cache (fast, no Priority API call)
-        cached = delivery_notes_db.get_full_accounts_cache()
+        cached = accounts_cache_db.get_accounts_cache()
         if cached and cached.get("data"):
             q_lower = q.lower()
             results = [
@@ -5634,7 +5721,32 @@ def done_action_queue(item_id):
 
 @app.route("/api/receipts/action-queue/<item_id>/remove", methods=["POST"])
 def remove_from_action_queue(item_id):
-    """Return item to unmatched list."""
+    """Remove action-queue item and restore bank line to unmatched list."""
+    try:
+        # Load item before removing so we can unblock the bank txn
+        all_items = action_queue_db._load() if action_queue_db else []
+        item = next((r for r in all_items if r.get("id") == item_id), None)
+
+        result = action_queue_db.remove_item(item_id)
+        if result is None:
+            return jsonify({"ok": False, "error": "לא נמצא"}), 404
+
+        # Unblock the bank transaction so it reappears in the unmatched list
+        if item:
+            fncnum = item.get("fncnum", "")
+            if fncnum:
+                processed = _load_processed_txns()
+                processed.discard(fncnum)
+                _save_processed_txns(processed)
+
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/action-queue/<item_id>/delete", methods=["POST"])
+def delete_from_action_queue(item_id):
+    """Delete action-queue item without restoring bank line (entry was already handled)."""
     try:
         result = action_queue_db.remove_item(item_id)
         if result is None:

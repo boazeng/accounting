@@ -79,6 +79,14 @@ export default function ReceiptsPage() {
   const [journalAccSuggestions, setJournalAccSuggestions] = useState([])
   const [journalAccSearching, setJournalAccSearching]     = useState(false)
   const [finalizingJournal, setFinalizingJournal]         = useState(null) // priority_fncnum being finalized
+  const [finalizeModal, setFinalizeModal]                 = useState(null) // {priorityFncnum}
+  const [finalizeInputNum, setFinalizeInputNum]           = useState('')
+  const [finalizeSaving, setFinalizeSaving]               = useState(false)
+  const [cancellingAction, setCancellingAction]           = useState(null) // item_id being cancelled
+
+  // Account code autocomplete (shared for receipt + invoice-receipt modals)
+  const [accSuggestions, setAccSuggestions] = useState([])
+  const [accSearching, setAccSearching]     = useState(false)
 
   // Invoice receipt modal state
   const [irModal, setIrModal]         = useState(null)
@@ -221,6 +229,7 @@ export default function ReceiptsPage() {
     setModalError('')
     setLastIvnum(null)
     setCustSuggestions([])
+    setAccSuggestions([])
     setOpenInvoices([])
     setSelectedInvoice(null)
     setExistingRc(null)
@@ -439,6 +448,7 @@ export default function ReceiptsPage() {
     setIrError('')
     setIrPrevNote('')
     setCustSuggestions([])
+    setAccSuggestions([])
 
     if (txn.SUM1) {
       setCustSearching(true)
@@ -513,26 +523,94 @@ export default function ReceiptsPage() {
     }
   }
 
+  async function searchAccounts(q) {
+    if (!q || q.length < 1) { setAccSuggestions([]); return }
+    setAccSearching(true)
+    try {
+      const res = await fetch(`${API}/api/receipts/priority-accounts?q=${encodeURIComponent(q)}`).then(r => r.json())
+      if (res.ok) setAccSuggestions(res.accounts || [])
+    } catch { /* silent */ } finally {
+      setAccSearching(false)
+    }
+  }
+
+  async function cancelAction(itemId) {
+    if (!window.confirm('לבטל את הפעולה ולהחזיר את שורת הבנק לרשימה?')) return
+    setCancellingAction(itemId)
+    try {
+      const resp = await fetch(`${API}/api/receipts/action-queue/${itemId}/remove`, { method: 'POST' })
+      const data = await resp.json()
+      if (!data.ok) throw new Error(data.error || 'שגיאה')
+      setDoneActions(prev => prev.filter(it => it.id !== itemId))
+      await loadAll()
+    } catch (e) {
+      alert('שגיאה: ' + e.message)
+    } finally {
+      setCancellingAction(null)
+    }
+  }
+
+  async function deleteAction(itemId) {
+    if (!window.confirm('למחוק מהרשימה? שורת הבנק לא תחזור לתנועות הלא מותאמות.')) return
+    try {
+      const resp = await fetch(`${API}/api/receipts/action-queue/${itemId}/delete`, { method: 'POST' })
+      const data = await resp.json()
+      if (!data.ok) throw new Error(data.error || 'שגיאה')
+      setDoneActions(prev => prev.filter(it => it.id !== itemId))
+    } catch (e) {
+      alert('שגיאה: ' + e.message)
+    }
+  }
+
   async function finalizeJournal(priorityFncnum) {
-    if (!window.confirm(`לרשום תנועת יומן ${priorityFncnum} בפריוריטי?\n(פעולה זו אינה הפיכה)`)) return
     setFinalizingJournal(priorityFncnum)
     try {
-      const resp = await fetch(`${API}/api/receipts/journal/${encodeURIComponent(priorityFncnum)}/finalize`, { method: 'POST' })
-      if (!resp.ok && resp.headers.get('content-type')?.includes('text/html')) {
-        throw new Error(`HTTP ${resp.status} — ייתכן שהשרת לא הופעל מחדש`)
-      }
+      const resp = await fetch(`${API}/api/receipts/journal/${encodeURIComponent(priorityFncnum)}/finalize`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
+      })
       const data = await resp.json()
-      if (!data.ok) throw new Error(data.detail?.error?.message || data.error || 'שגיאה')
+      if (data.ok) {
+        const finalFncnum = data.fncnum || priorityFncnum
+        setDoneActions(prev => prev.map(it =>
+          it.priority_fncnum === priorityFncnum ? { ...it, is_final: true, priority_fncnum: finalFncnum } : it
+        ))
+        return
+      }
+      // SDK failed — open manual dialog with error reason
+      setFinalizeModal({ priorityFncnum, error: data.error })
+      setFinalizeInputNum('')
+    } catch (e) {
+      setFinalizeModal({ priorityFncnum, error: e.message })
+      setFinalizeInputNum('')
+    } finally {
+      setFinalizingJournal(null)
+    }
+  }
+
+  async function confirmFinalizeJournal() {
+    const { priorityFncnum } = finalizeModal
+    const finalNum = finalizeInputNum.trim() || priorityFncnum
+    setFinalizeSaving(true)
+    try {
+      const resp = await fetch(`${API}/api/receipts/journal/${encodeURIComponent(priorityFncnum)}/finalize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ final_fncnum: finalNum }),
+      })
+      const data = await resp.json()
+      if (!data.ok) throw new Error(data.error || 'שגיאה')
       const finalFncnum = data.fncnum || priorityFncnum
       setDoneActions(prev => prev.map(it =>
         it.priority_fncnum === priorityFncnum
           ? { ...it, is_final: true, priority_fncnum: finalFncnum }
           : it
       ))
+      setFinalizeModal(null)
+      setFinalizeInputNum('')
     } catch (e) {
-      alert('שגיאה ברישום תנועת יומן: ' + e.message)
+      alert('שגיאה: ' + e.message)
     } finally {
-      setFinalizingJournal(null)
+      setFinalizeSaving(false)
     }
   }
 
@@ -643,7 +721,7 @@ export default function ReceiptsPage() {
                                 onClick={() => deleteReceipt(rec)}
                                 disabled={deleting === rec.id}
                               >
-                                {deleting === rec.id ? '...' : 'מחק'}
+                                {deleting === rec.id ? '...' : 'בטל'}
                               </button>
                             </td>
                           </tr>
@@ -698,7 +776,7 @@ export default function ReceiptsPage() {
                             {item.priority_fncnum}
                             {item.is_final && <div style={{ fontSize: 10, color: '#15803d', fontWeight: 400 }}>סופי</div>}
                           </td>
-                          <td>
+                          <td style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                             {!item.is_final && (
                               <button
                                 onClick={() => finalizeJournal(item.priority_fncnum)}
@@ -710,6 +788,25 @@ export default function ReceiptsPage() {
                                 {finalizingJournal === item.priority_fncnum ? '...' : 'רישום תנועת יומן'}
                               </button>
                             )}
+                            {!item.is_final && (
+                              <button
+                                onClick={() => cancelAction(item.id)}
+                                disabled={cancellingAction === item.id}
+                                style={{ fontSize: 11, padding: '2px 8px', cursor: 'pointer',
+                                         background: '#fef2f2', border: '1px solid #dc2626',
+                                         borderRadius: 4, color: '#dc2626', whiteSpace: 'nowrap' }}
+                              >
+                                {cancellingAction === item.id ? '...' : 'החזר לרשימה'}
+                              </button>
+                            )}
+                            <button
+                              onClick={() => deleteAction(item.id)}
+                              style={{ fontSize: 11, padding: '2px 8px', cursor: 'pointer',
+                                       background: '#f9fafb', border: '1px solid #9ca3af',
+                                       borderRadius: 4, color: '#6b7280', whiteSpace: 'nowrap' }}
+                            >
+                              מחוק
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -802,7 +899,7 @@ export default function ReceiptsPage() {
                                 style={{ fontSize: 12, padding: '3px 8px' }}
                                 onClick={() => deleteReceipt(rec)}
                                 disabled={deleting === rec.id}
-                              >מחק</button>
+                              >בטל</button>
                             </div>
                           </td>
                         </tr>
@@ -942,19 +1039,21 @@ export default function ReceiptsPage() {
               <label>קוד לקוח בפריוריטי (ACCNAME) *</label>
               <input
                 type="text"
-                placeholder='לדוגמה: 50440'
+                placeholder='לדוגמה: 50440 או שם לקוח'
                 value={modalAccname}
                 onChange={e => {
-                  setModalAccname(e.target.value)
+                  const v = e.target.value
+                  setModalAccname(v)
                   setModalAccdes('')
                   setOpenInvoices([])
                   setSelectedInvoice(null)
+                  searchAccounts(v)
                 }}
                 onBlur={e => {
                   const v = e.target.value.trim()
+                  setTimeout(() => setAccSuggestions([]), 200)
                   if (v.length >= 2) {
                     searchOpenInvoices(v, receiptModal)
-                    // Lookup customer name if not already known
                     if (!modalAccdes) {
                       fetch(`${API}/api/receipts/priority-accounts?q=${encodeURIComponent(v)}`)
                         .then(r => r.json())
@@ -969,6 +1068,28 @@ export default function ReceiptsPage() {
                 }}
                 autoFocus={custSuggestions.length === 0}
               />
+              {accSearching && <p style={{ fontSize: 12, color: '#6b7280', margin: '2px 0 0' }}>מחפש...</p>}
+              {accSuggestions.length > 0 && (
+                <div style={{ border: '1px solid #e5e7eb', borderRadius: 6, marginTop: 2, background: '#fff', maxHeight: 180, overflowY: 'auto', zIndex: 10, position: 'relative' }}>
+                  {accSuggestions.map(a => (
+                    <button
+                      key={a.accname}
+                      onMouseDown={() => {
+                        setModalAccname(a.accname)
+                        setModalAccdes(a.accdes)
+                        setAccSuggestions([])
+                        searchOpenInvoices(a.accname, receiptModal)
+                      }}
+                      style={{ display: 'block', width: '100%', textAlign: 'right', padding: '6px 10px',
+                        border: 'none', background: 'none', cursor: 'pointer', fontSize: 13,
+                        borderBottom: '1px solid #f3f4f6' }}
+                    >
+                      <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#1d4ed8' }}>{a.accname}</span>
+                      {a.accdes && <span style={{ color: '#374151', marginRight: 8 }}>{a.accdes}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
               {modalAccdes && (
                 <div style={{ marginTop: 4, fontSize: 13, color: '#15803d', fontWeight: 600 }}>
                   {modalAccdes}
@@ -1106,11 +1227,16 @@ export default function ReceiptsPage() {
               <label>קוד לקוח (CUSTNAME) *</label>
               <input
                 type="text"
-                placeholder="לדוגמה: 50440"
+                placeholder="לדוגמה: 50440 או שם לקוח"
                 value={irAccname}
-                onChange={e => { setIrAccname(e.target.value); setIrAccdes('') }}
+                onChange={e => {
+                  setIrAccname(e.target.value)
+                  setIrAccdes('')
+                  searchAccounts(e.target.value)
+                }}
                 onBlur={async e => {
                   const v = e.target.value.trim()
+                  setTimeout(() => setAccSuggestions([]), 200)
                   if (v.length >= 2) {
                     await loadLastEinvoice(v, irModal?.BRANCHNAME || '', irModal?.SUM1)
                     if (!irAccdes) {
@@ -1127,6 +1253,28 @@ export default function ReceiptsPage() {
                 }}
                 autoFocus={custSuggestions.length === 0}
               />
+              {accSearching && <p style={{ fontSize: 12, color: '#6b7280', margin: '2px 0 0' }}>מחפש...</p>}
+              {accSuggestions.length > 0 && (
+                <div style={{ border: '1px solid #e5e7eb', borderRadius: 6, marginTop: 2, background: '#fff', maxHeight: 180, overflowY: 'auto', zIndex: 10, position: 'relative' }}>
+                  {accSuggestions.map(a => (
+                    <button
+                      key={a.accname}
+                      onMouseDown={async () => {
+                        setIrAccname(a.accname)
+                        setIrAccdes(a.accdes)
+                        setAccSuggestions([])
+                        await loadLastEinvoice(a.accname, irModal?.BRANCHNAME || '', irModal?.SUM1)
+                      }}
+                      style={{ display: 'block', width: '100%', textAlign: 'right', padding: '6px 10px',
+                        border: 'none', background: 'none', cursor: 'pointer', fontSize: 13,
+                        borderBottom: '1px solid #f3f4f6' }}
+                    >
+                      <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#7c3aed' }}>{a.accname}</span>
+                      {a.accdes && <span style={{ color: '#374151', marginRight: 8 }}>{a.accdes}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
               {irAccdes && <div style={{ marginTop: 4, fontSize: 13, color: '#7c3aed', fontWeight: 600 }}>{irAccdes}</div>}
             </div>
 
@@ -1289,7 +1437,25 @@ export default function ReceiptsPage() {
                   setJournalCounterDesc('')
                   searchJournalAccounts(e.target.value)
                 }}
+                onBlur={async () => {
+                  if (!journalCounterpart.trim() || journalCounterDesc) return
+                  try {
+                    const res = await fetch(`${API}/api/receipts/priority-accounts?q=${encodeURIComponent(journalCounterpart.trim())}`).then(r => r.json())
+                    const accs = res.accounts || []
+                    const exact = accs.find(a =>
+                      a.accname === journalCounterpart.trim() ||
+                      a.accname === `${journalCounterpart.trim()}-${journalModal.BRANCHNAME}`
+                    ) || accs[0]
+                    if (exact) setJournalCounterDesc(exact.accdes)
+                  } catch { /* silent */ }
+                }}
               />
+              {journalCounterDesc && (
+                <div style={{ fontSize: 12, color: '#374151', marginTop: 3, paddingRight: 2 }}>
+                  <span style={{ color: '#6b7280' }}>שם חשבון: </span>
+                  <strong>{journalCounterDesc}</strong>
+                </div>
+              )}
               {journalAccSearching && (
                 <p style={{ fontSize: 12, color: '#6b7280', margin: '2px 0 0' }}>מחפש חשבונות...</p>
               )}
@@ -1345,6 +1511,52 @@ export default function ReceiptsPage() {
               >
                 ביטול
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {finalizeModal && (
+        <div className="receipts-modal-overlay" onClick={e => { if (e.target === e.currentTarget) { setFinalizeModal(null); setFinalizeInputNum('') } }}>
+          <div className="receipts-modal" dir="rtl" style={{ maxWidth: 420 }}>
+            <h3>רישום תנועת יומן</h3>
+            {finalizeModal.error && (
+              <p style={{ fontSize: 12, color: '#dc2626', background: '#fef2f2', border: '1px solid #fca5a5',
+                           borderRadius: 6, padding: '6px 10px', marginBottom: 10, direction: 'rtl' }}>
+                {finalizeModal.error}
+              </p>
+            )}
+            <p style={{ fontSize: 13, color: '#374151', lineHeight: 1.6 }}>
+              יש לבצע את הפעולה ידנית בפריוריטי:
+            </p>
+            <ol style={{ fontSize: 13, color: '#374151', lineHeight: 2, paddingRight: 20, marginBottom: 16 }}>
+              <li>פתח פריוריטי ← תנועות יומן</li>
+              <li>חפש מספר <strong>{finalizeModal.priorityFncnum}</strong></li>
+              <li>לחץ <strong>"רישום תנועת יומן"</strong></li>
+            </ol>
+            <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>
+              מספר תנועה סופי (אחרי הרישום בפריוריטי):
+            </label>
+            <input
+              type="text"
+              value={finalizeInputNum}
+              onChange={e => setFinalizeInputNum(e.target.value)}
+              placeholder={`${finalizeModal.priorityFncnum} (השאר ריק אם לא השתנה)`}
+              style={{ width: '100%', padding: '6px 10px', fontSize: 13, borderRadius: 6,
+                       border: '1px solid #d1d5db', marginBottom: 16, boxSizing: 'border-box' }}
+              dir="ltr"
+            />
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                className="receipts-btn receipts-btn-cancel"
+                onClick={() => { setFinalizeModal(null); setFinalizeInputNum('') }}
+                disabled={finalizeSaving}
+              >ביטול</button>
+              <button
+                className="receipts-btn receipts-btn-primary"
+                onClick={confirmFinalizeJournal}
+                disabled={finalizeSaving}
+              >{finalizeSaving ? '...' : 'סמן כנרשם'}</button>
             </div>
           </div>
         </div>
