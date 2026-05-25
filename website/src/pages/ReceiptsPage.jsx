@@ -89,6 +89,7 @@ export default function ReceiptsPage() {
   const [irLoading, setIrLoading]     = useState(false)
   const [irSending, setIrSending]     = useState(false)
   const [irError, setIrError]         = useState('')
+  const [irPrevNote, setIrPrevNote]   = useState('')  // feedback on previous invoice lookup
 
   const loadAll = useCallback(async (d, b) => {
     const daysParam   = d ?? days
@@ -388,21 +389,31 @@ export default function ReceiptsPage() {
   async function loadLastEinvoice(accname, branchname) {
     if (!accname) return
     setIrLoading(true)
+    setIrPrevNote('')
     try {
       const params = new URLSearchParams({ accname, branchname: branchname || '' })
       const res = await fetch(`${API}/api/receipts/last-einvoice?${params}`).then(r => r.json())
-      if (res.ok && res.found) {
-        setIrDetails(res.details || '')
-        if (res.items?.length > 0) {
-          setIrItems(res.items.map(it => ({
-            PARTNAME: it.PARTNAME || '000',
-            PDES:     it.PDES || '',
-            TQUANT:   Number(it.TQUANT) || 1,
-            PRICE:    Number(it.PRICE) || 0,
-          })))
-        }
+      if (!res.ok) {
+        setIrPrevNote(`שגיאה: ${res.error || 'לא ידועה'}`)
+        return
       }
-    } catch { /* silent */ } finally {
+      if (!res.found) {
+        setIrPrevNote('לא נמצאה חשבונית קודמת ללקוח זה')
+        return
+      }
+      setIrDetails(res.details || '')
+      setIrPrevNote(`הועתק מ-${res.ivnum} (${fmt((res.ivdate || '').slice(0, 10))})`)
+      if (res.items?.length > 0) {
+        setIrItems(res.items.map(it => ({
+          PARTNAME: it.PARTNAME || '000',
+          PDES:     it.PDES || '',
+          TQUANT:   Number(it.TQUANT) || 1,
+          PRICE:    Number(it.PRICE) || 0,
+        })))
+      }
+    } catch (e) {
+      setIrPrevNote(`שגיאה בטעינה: ${e.message}`)
+    } finally {
       setIrLoading(false)
     }
   }
@@ -415,6 +426,7 @@ export default function ReceiptsPage() {
     setIrItems([{ PARTNAME: '000', PDES: '', TQUANT: 1, PRICE: txn.SUM1 || 0 }])
     setIrSending(false)
     setIrError('')
+    setIrPrevNote('')
     setCustSuggestions([])
 
     if (txn.SUM1) {
@@ -1094,8 +1106,13 @@ export default function ReceiptsPage() {
             </div>
 
             <div className="receipts-modal-field">
-              <label>פרטים {irDetails && <span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 400 }}>(מחשבונית קודמת — ניתן לשנות)</span>}</label>
+              <label>פרטים</label>
               <input type="text" value={irDetails} onChange={e => setIrDetails(e.target.value)} placeholder="פרטי החשבונית" />
+              {irPrevNote && (
+                <div style={{ fontSize: 11, marginTop: 3, color: irPrevNote.startsWith('שגיאה') || irPrevNote.startsWith('לא נמצא') ? '#b45309' : '#6b7280' }}>
+                  {irPrevNote}
+                </div>
+              )}
             </div>
 
             {irLoading && <p style={{ fontSize: 13, color: '#6b7280', margin: '4px 0' }}>טוען פרטים מחשבונית קודמת...</p>}
