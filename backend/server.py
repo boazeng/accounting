@@ -4904,12 +4904,16 @@ def bank_line_create_invoice_receipt():
         key            = f"IVNUM='{priority_ivnum}',IVTYPE='{ivtype}',DEBIT='{debit}'"
 
         # 2. POST each line item to EINVOICEITEMS_SUBFORM
+        # Frontend sends VAT-inclusive prices (= bank amount); divide by 1.17 so Priority's total == bank amount
+        VAT_RATE = 0.17
         for item in items:
+            inclusive = float(item.get("PRICE", 0))
+            pre_vat   = round(inclusive / (1 + VAT_RATE), 2)
             item_payload = {
                 "PARTNAME": str(item.get("PARTNAME", "000")),
                 "PDES":     str(item.get("PDES", "")),
                 "TQUANT":   float(item.get("TQUANT", 1)),
-                "PRICE":    float(item.get("PRICE", 0)),
+                "PRICE":    pre_vat,
             }
             try:
                 http_requests.post(
@@ -4919,7 +4923,24 @@ def bank_line_create_invoice_receipt():
             except Exception as item_err:
                 logger.warning(f"EINVOICEITEMS_SUBFORM item failed (non-fatal): {item_err}")
 
-        # 3. Save to receipts_db
+        # 3. POST payment to EPAYMENT2_SUBFORM — payment type 3 = bank transfer
+        epay_payload = {
+            "PAYMENTCODE": "3",
+            "PAYDATE":     ivdate,
+            "QPRICE":      amount,
+            "TOTPRICE":    amount,
+            "CASHNAME":    cashname,
+            "DETAILS":     details,
+        }
+        try:
+            http_requests.post(
+                f"{_prio_url()}/EINVOICES({key})/EPAYMENT2_SUBFORM",
+                json=epay_payload, headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=15,
+            ).raise_for_status()
+        except Exception as pay_err:
+            logger.warning(f"EPAYMENT2_SUBFORM failed (non-fatal): {pay_err}")
+
+        # 4. Save to receipts_db
         rec = receipts_db.add_receipt(
             fncnum=txn_id,
             accname=accname,
@@ -5142,21 +5163,41 @@ def bank_line_create_journal():
 
 @app.route("/api/receipts/journal/<priority_fncnum>/finalize", methods=["POST"])
 def journal_finalize(priority_fncnum):
-    """Register journal entry (רישום תנועת יומן) via Priority CLOSEANFNCTRANS procedure.
-    This is the equivalent of clicking 'רישום תנועת יומן' in Priority,
-    which posts the draft and returns a new final FNCNUM.
-    """
+    """Register journal entry (רישום תנועת יומן) — PATCH FINAL='Y' then re-fetch to get final FNCNUM."""
     try:
-        # Call Priority's CLOSEANFNCTRANS procedure on the draft entry
-        resp = http_requests.post(
-            f"{_prio_url()}/FNCTRANS('{priority_fncnum}')/CLOSEANFNCTRANS",
-            json={},
+        # Step 1: PATCH FINAL='Y' to post the journal entry
+        patch_resp = http_requests.patch(
+            f"{_prio_url()}/FNCTRANS('{priority_fncnum}')",
+            json={"FINAL": "Y"},
             headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=20,
         )
-        resp.raise_for_status()
-        result = resp.json() if resp.content else {}
-        # After CLOSEANFNCTRANS, Priority returns the posted entry with final FNCNUM
-        final_fncnum = result.get("FNCNUM", priority_fncnum) or priority_fncnum
+        # If entry is already final Priority may return 4xx — that's OK, continue to re-fetch
+        already_final = not patch_resp.ok
+
+        # Step 2: Re-fetch the entry to get the actual FNCNUM after posting
+        get_resp = http_requests.get(
+            f"{_prio_url()}/FNCTRANS('{priority_fncnum}')?$select=FNCNUM,FINAL",
+            headers={"Accept": "application/json", "OData-Version": "4.0"},
+            auth=_prio_auth(), timeout=20, verify=False,
+        )
+        final_fncnum = priority_fncnum
+        if get_resp.ok:
+            got = get_resp.json()
+            entry_final = got.get("FINAL", "")
+            fetched_fncnum = got.get("FNCNUM") or priority_fncnum
+            final_fncnum = fetched_fncnum
+            if entry_final != "Y" and already_final:
+                # PATCH failed and entry is not final — real error
+                try:
+                    detail = patch_resp.json()
+                except Exception:
+                    detail = patch_resp.text
+                logger.error(f"journal_finalize PATCH failed for {priority_fncnum}: {detail}")
+                return jsonify({"ok": False, "error": f"HTTP {patch_resp.status_code}", "detail": detail}), 500
+        elif already_final:
+            # PATCH failed and GET also failed — raise the original patch error
+            patch_resp.raise_for_status()
+
         if action_queue_db:
             action_queue_db.mark_final_by_priority_fncnum(priority_fncnum, final_fncnum)
         return jsonify({"ok": True, "fncnum": final_fncnum, "draft_fncnum": priority_fncnum})
@@ -5165,7 +5206,7 @@ def journal_finalize(priority_fncnum):
             detail = e.response.json()
         except Exception:
             detail = str(e)
-        logger.error(f"CLOSEANFNCTRANS failed for {priority_fncnum}: {detail}")
+        logger.error(f"journal_finalize PATCH failed for {priority_fncnum}: {detail}")
         return jsonify({"ok": False, "error": str(e), "detail": detail}), 500
     except Exception as e:
         logger.error(f"journal_finalize error for {priority_fncnum}: {e}")
