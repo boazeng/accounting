@@ -943,6 +943,105 @@ def get_customer_invoices():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/reports/cinvoices-pdf", methods=["GET"])
+def export_cinvoices_pdf():
+    """Fetch all CINVOICES for a branch + date range and return a merged PDF.
+
+    Query params:
+      branch  — e.g. '009'
+      from    — YYYY-MM-DD
+      to      — YYYY-MM-DD
+      final   — 'Y' (default) or 'N' or 'all'
+    """
+    import base64
+    import pypdf
+
+    set_priority_env()
+    branch   = request.args.get("branch", "").strip()
+    date_from = request.args.get("from", "").strip()
+    date_to   = request.args.get("to",   "").strip()
+    final_filter = request.args.get("final", "Y").strip().upper()
+
+    if not branch or not date_from or not date_to:
+        return jsonify({"error": "חסרים פרמטרים: branch, from, to"}), 400
+
+    url    = _prio_url()
+    auth   = _prio_auth()
+    hdrs   = _PRIO_READ_HEADERS
+
+    # Build OData filter (IVTYPE/DEBIT are key fields — not filterable, skip)
+    # Date format must be unquoted ISO with Z suffix (Priority OData requirement)
+    flt_parts = [
+        f"BRANCHNAME eq '{branch}'",
+        f"IVDATE ge {date_from}T00:00:00Z",
+        f"IVDATE le {date_to}T23:59:59Z",
+    ]
+    if final_filter != "ALL":
+        flt_parts.append(f"FINAL eq '{final_filter}'")
+
+    flt = " and ".join(flt_parts)
+    list_url = (
+        f"{url}/CINVOICES"
+        f"?$filter={flt}"
+        f"&$select=IVNUM,CUSTNAME,CDES,IVDATE,TOTPRICE,DEBIT"
+        f"&$orderby=IVDATE asc"
+        f"&$top=200"
+    )
+
+    try:
+        r = http_requests.get(list_url, headers=hdrs, auth=auth, timeout=30)
+        r.raise_for_status()
+        all_rows = r.json().get("value", [])
+        # Keep only originals (DEBIT='D') — credit notes have DEBIT='C'
+        invoices = [row for row in all_rows if row.get("DEBIT", "D") != "C"]
+    except Exception as e:
+        return jsonify({"error": f"שגיאה בשליפת רשימת חשבוניות: {e}"}), 500
+
+    if not invoices:
+        return jsonify({"error": f"לא נמצאו חשבוניות לסניף {branch} בתאריכים {date_from}–{date_to}"}), 404
+
+    merger = pypdf.PdfWriter()
+    errors = []
+
+    for inv in invoices:
+        ivnum = inv.get("IVNUM", "")
+        if not ivnum:
+            continue
+        att_url = f"{url}/CINVOICES(IVNUM='{ivnum}',IVTYPE='C',DEBIT='D')/EXTFILES_SUBFORM"
+        try:
+            ar = http_requests.get(att_url, headers=hdrs, auth=auth, timeout=20)
+            ar.raise_for_status()
+            attachments = ar.json().get("value", [])
+            if not attachments:
+                errors.append(f"{ivnum}: אין קובץ מצורף")
+                continue
+            raw = attachments[0].get("EXTFILENAME", "")
+            b64 = raw.split(",", 1)[1] if "," in raw else raw
+            pdf_bytes = base64.b64decode(b64)
+            merger.append(io.BytesIO(pdf_bytes))
+        except Exception as e:
+            errors.append(f"{ivnum}: {e}")
+            continue
+
+    if len(merger.pages) == 0:
+        return jsonify({"error": "לא הצלחתי להוריד אף חשבונית", "details": errors}), 500
+
+    out_buf = io.BytesIO()
+    merger.write(out_buf)
+    merger.close()
+    out_buf.seek(0)
+
+    filename = f"cinvoices_{branch}_{date_from[:7]}_to_{date_to[:7]}.pdf"
+    logger.info(f"export_cinvoices_pdf: branch={branch} {date_from}–{date_to}, "
+                f"{len(invoices)} invoices, {len(errors)} errors")
+
+    resp = send_file(out_buf, mimetype="application/pdf",
+                     as_attachment=True, download_name=filename)
+    if errors:
+        resp.headers["X-Skipped-Invoices"] = "; ".join(errors[:10])
+    return resp
+
+
 @app.route("/api/hr/cinvoice-download", methods=["POST"])
 def download_cinvoice_pdf():
     """Download CINVOICE PDF attachment from Priority."""
@@ -4675,16 +4774,32 @@ def last_einvoice():
         else:
             full_accname = accname
 
-        filter_q = f"CUSTNAME eq '{full_accname}'"
-        url = (
-            f"{_prio_url()}/EINVOICES?$filter={filter_q}"
-            f"&$orderby=IVDATE desc&$top=1"
-            f"&$select=IV,IVNUM,IVTYPE,DEBIT,IVDATE,CUSTNAME,DETAILS,BRANCHNAME,TOTPRICE"
-        )
-        resp = http_requests.get(url, headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=15)
-        resp.raise_for_status()
-        items_list = resp.json().get("value", [])
+        def _fetch_einvoices(cust_filter):
+            u = (
+                f"{_prio_url()}/EINVOICES?$filter={cust_filter}"
+                f"&$orderby=IVDATE desc&$top=1"
+                f"&$select=IV,IVNUM,IVTYPE,DEBIT,IVDATE,CUSTNAME,DETAILS,BRANCHNAME,TOTPRICE"
+            )
+            r = http_requests.get(u, headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=15)
+            r.raise_for_status()
+            return r.json().get("value", [])
+
+        # Try full CUSTNAME (with branch suffix), then bare accname, then BRANCHNAME-scoped search
+        candidates = [f"CUSTNAME eq '{full_accname}'"]
+        if full_accname != accname:
+            candidates.append(f"CUSTNAME eq '{accname}'")
+        if branchname:
+            candidates.append(f"BRANCHNAME eq '{branchname}'")
+
+        items_list = []
+        for filt in candidates:
+            items_list = _fetch_einvoices(filt)
+            if items_list:
+                logger.info(f"last_einvoice: found with filter '{filt}'")
+                break
+
         if not items_list:
+            logger.info(f"last_einvoice: no EINVOICES for accname={accname} branch={branchname}")
             return jsonify({"ok": True, "found": False})
 
         inv    = items_list[0]
@@ -4972,7 +5087,7 @@ def bank_line_create_journal():
 
         # Save template for future suggestions
         if journal_templates_db and save_tpl and counterpart:
-            journal_templates_db.save_template(details, counterpart, counterpart_desc)
+            journal_templates_db.save_template(details, counterpart, counterpart_desc, branchname)
 
         # Record in action queue as done (so it appears in the sent-to-Priority list)
         if action_queue_db:
@@ -5000,6 +5115,29 @@ def bank_line_create_journal():
 
         return jsonify({"ok": True, "fncnum": fncnum})
 
+    except http_requests.exceptions.HTTPError as e:
+        try:
+            detail = e.response.json()
+        except Exception:
+            detail = str(e)
+        return jsonify({"ok": False, "error": str(e), "detail": detail}), 500
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/journal/<priority_fncnum>/finalize", methods=["POST"])
+def journal_finalize(priority_fncnum):
+    """Set FINAL='Y' on a FNCTRANS record in Priority and mark it final locally."""
+    try:
+        resp = http_requests.patch(
+            f"{_prio_url()}/FNCTRANS('{priority_fncnum}')",
+            json={"FINAL": "Y"},
+            headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=15,
+        )
+        resp.raise_for_status()
+        if action_queue_db:
+            action_queue_db.mark_final_by_priority_fncnum(priority_fncnum)
+        return jsonify({"ok": True, "fncnum": priority_fncnum})
     except http_requests.exceptions.HTTPError as e:
         try:
             detail = e.response.json()
