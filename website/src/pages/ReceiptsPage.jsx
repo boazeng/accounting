@@ -480,7 +480,14 @@ export default function ReceiptsPage() {
         }),
       })
       const data = await resp.json()
-      if (!data.ok) throw new Error((data.detail?.error?.message) || data.error || 'שגיאה')
+      if (!data.ok) {
+        const d = data.detail
+        const pMsg = (typeof d === 'string' ? d : null)
+          || d?.error?.message?.value || (typeof d?.error?.message === 'string' ? d.error.message : null)
+          || (typeof d === 'object' ? JSON.stringify(d) : null)
+          || data.error || 'שגיאה'
+        throw new Error(pMsg)
+      }
       setLastIvnum(data.priority_ivnum)
       await loadAll()
       setIrModal(null)
@@ -503,7 +510,7 @@ export default function ReceiptsPage() {
   }
 
   async function finalizeJournal(priorityFncnum) {
-    if (!window.confirm(`להפוך פקודת יומן ${priorityFncnum} לסופית בפריוריטי?\n(פעולה זו אינה הפיכה)`)) return
+    if (!window.confirm(`לרשום תנועת יומן ${priorityFncnum} בפריוריטי?\n(פעולה זו אינה הפיכה)`)) return
     setFinalizingJournal(priorityFncnum)
     try {
       const resp = await fetch(`${API}/api/receipts/journal/${encodeURIComponent(priorityFncnum)}/finalize`, { method: 'POST' })
@@ -512,11 +519,14 @@ export default function ReceiptsPage() {
       }
       const data = await resp.json()
       if (!data.ok) throw new Error(data.detail?.error?.message || data.error || 'שגיאה')
+      const finalFncnum = data.fncnum || priorityFncnum
       setDoneActions(prev => prev.map(it =>
-        it.priority_fncnum === priorityFncnum ? { ...it, is_final: true } : it
+        it.priority_fncnum === priorityFncnum
+          ? { ...it, is_final: true, priority_fncnum: finalFncnum }
+          : it
       ))
     } catch (e) {
-      alert('שגיאה בהפיכה לסופי: ' + e.message)
+      alert('שגיאה ברישום תנועת יומן: ' + e.message)
     } finally {
       setFinalizingJournal(null)
     }
@@ -662,12 +672,12 @@ export default function ReceiptsPage() {
                         <th>חשבון נגדי</th>
                         <th>סניף</th>
                         <th>מס׳ בפריוריטי</th>
-                        <th>סטטוס</th>
+                        <th></th>
                       </tr>
                     </thead>
                     <tbody>
                       {sentJournals.map(item => (
-                        <tr key={item.id} style={{ opacity: item.is_final ? 0.55 : 0.85 }}>
+                        <tr key={item.id} style={{ opacity: item.is_final ? 0.65 : 0.9 }}>
                           <td>{fmt(item.curdate)}</td>
                           <td>{item.details}</td>
                           <td><AmountCell sum1={item.sum1} direction={item.direction} /></td>
@@ -680,22 +690,22 @@ export default function ReceiptsPage() {
                             {item.accdes2 && <div style={{ color: '#9ca3af', fontSize: 10 }}>{item.accdes2}</div>}
                           </td>
                           <td>{item.branchname}</td>
-                          <td className="receipts-mono" style={{ color: '#6c5ce7', fontWeight: 700 }}>
+                          <td className="receipts-mono" style={{ color: item.is_final ? '#15803d' : '#6c5ce7', fontWeight: 700 }}>
                             {item.priority_fncnum}
+                            {item.is_final && <div style={{ fontSize: 10, color: '#15803d', fontWeight: 400 }}>סופי</div>}
                           </td>
                           <td>
-                            {item.is_final
-                              ? <span style={{ color: '#15803d', fontWeight: 700, fontSize: 12 }}>סופי</span>
-                              : <button
-                                  onClick={() => finalizeJournal(item.priority_fncnum)}
-                                  disabled={finalizingJournal === item.priority_fncnum}
-                                  style={{ fontSize: 11, padding: '2px 8px', cursor: 'pointer',
-                                           background: '#fff7ed', border: '1px solid #b45309',
-                                           borderRadius: 4, color: '#b45309' }}
-                                >
-                                  {finalizingJournal === item.priority_fncnum ? '...' : 'הפוך לסופי'}
-                                </button>
-                            }
+                            {!item.is_final && (
+                              <button
+                                onClick={() => finalizeJournal(item.priority_fncnum)}
+                                disabled={finalizingJournal === item.priority_fncnum}
+                                style={{ fontSize: 11, padding: '2px 8px', cursor: 'pointer',
+                                         background: '#fff7ed', border: '1px solid #b45309',
+                                         borderRadius: 4, color: '#b45309', whiteSpace: 'nowrap' }}
+                              >
+                                {finalizingJournal === item.priority_fncnum ? '...' : 'רישום תנועת יומן'}
+                              </button>
+                            )}
                           </td>
                         </tr>
                       ))}

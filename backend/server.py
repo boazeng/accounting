@@ -4875,12 +4875,28 @@ def bank_line_create_invoice_receipt():
             "IVDATE":     ivdate,
             "DETAILS":    details,
             "BRANCHNAME": branchname,
+            "TOTPRICE":   amount,
         }
         logger.info(f"create_invoice_receipt header: {header_payload}")
         resp = http_requests.post(
             f"{_prio_url()}/EINVOICES", json=header_payload,
             headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=20,
         )
+        if not resp.ok:
+            try:
+                err_body = resp.json()
+            except Exception:
+                err_body = resp.text
+            logger.error(f"EINVOICES create failed {resp.status_code}: {err_body}")
+            # Extract readable Priority error message
+            def _prio_msg(body):
+                if isinstance(body, dict):
+                    m = body.get("error", {}).get("message", "")
+                    if isinstance(m, dict):
+                        return m.get("value", str(body))
+                    return m or str(body)
+                return str(body)
+            return jsonify({"ok": False, "error": _prio_msg(err_body), "detail": err_body}), 400
         resp.raise_for_status()
         resp_data      = resp.json()
         priority_ivnum = resp_data.get("IVNUM", "")
@@ -5127,7 +5143,9 @@ def bank_line_create_journal():
 
 @app.route("/api/receipts/journal/<priority_fncnum>/finalize", methods=["POST"])
 def journal_finalize(priority_fncnum):
-    """Set FINAL='Y' on a FNCTRANS record in Priority and mark it final locally."""
+    """Register (רישום תנועת יומן) a draft FNCTRANS in Priority by setting FINAL='Y'.
+    Priority may assign a new final FNCNUM; we capture it and return it.
+    """
     try:
         resp = http_requests.patch(
             f"{_prio_url()}/FNCTRANS('{priority_fncnum}')",
@@ -5135,9 +5153,12 @@ def journal_finalize(priority_fncnum):
             headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=15,
         )
         resp.raise_for_status()
+        result = resp.json()
+        # Priority may return a new final FNCNUM after posting
+        final_fncnum = result.get("FNCNUM", priority_fncnum) or priority_fncnum
         if action_queue_db:
-            action_queue_db.mark_final_by_priority_fncnum(priority_fncnum)
-        return jsonify({"ok": True, "fncnum": priority_fncnum})
+            action_queue_db.mark_final_by_priority_fncnum(priority_fncnum, final_fncnum)
+        return jsonify({"ok": True, "fncnum": final_fncnum, "draft_fncnum": priority_fncnum})
     except http_requests.exceptions.HTTPError as e:
         try:
             detail = e.response.json()
