@@ -4869,13 +4869,12 @@ def bank_line_create_invoice_receipt():
         else:
             full_accname = accname
 
-        # 1. Create EINVOICES header — CUSTNAME is the base code (no branch suffix; BRANCHNAME is separate)
+        # 1. Create EINVOICES header — total is derived from line items, not set directly
         header_payload = {
             "CUSTNAME":   accname,
             "IVDATE":     ivdate,
             "DETAILS":    details,
             "BRANCHNAME": branchname,
-            "TOTPRICE":   amount,
         }
         logger.info(f"create_invoice_receipt header: {header_payload}")
         resp = http_requests.post(
@@ -5143,18 +5142,20 @@ def bank_line_create_journal():
 
 @app.route("/api/receipts/journal/<priority_fncnum>/finalize", methods=["POST"])
 def journal_finalize(priority_fncnum):
-    """Register (רישום תנועת יומן) a draft FNCTRANS in Priority by setting FINAL='Y'.
-    Priority may assign a new final FNCNUM; we capture it and return it.
+    """Register journal entry (רישום תנועת יומן) via Priority CLOSEANFNCTRANS procedure.
+    This is the equivalent of clicking 'רישום תנועת יומן' in Priority,
+    which posts the draft and returns a new final FNCNUM.
     """
     try:
-        resp = http_requests.patch(
-            f"{_prio_url()}/FNCTRANS('{priority_fncnum}')",
-            json={"FINAL": "Y"},
-            headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=15,
+        # Call Priority's CLOSEANFNCTRANS procedure on the draft entry
+        resp = http_requests.post(
+            f"{_prio_url()}/FNCTRANS('{priority_fncnum}')/CLOSEANFNCTRANS",
+            json={},
+            headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=20,
         )
         resp.raise_for_status()
-        result = resp.json()
-        # Priority may return a new final FNCNUM after posting
+        result = resp.json() if resp.content else {}
+        # After CLOSEANFNCTRANS, Priority returns the posted entry with final FNCNUM
         final_fncnum = result.get("FNCNUM", priority_fncnum) or priority_fncnum
         if action_queue_db:
             action_queue_db.mark_final_by_priority_fncnum(priority_fncnum, final_fncnum)
@@ -5164,8 +5165,10 @@ def journal_finalize(priority_fncnum):
             detail = e.response.json()
         except Exception:
             detail = str(e)
+        logger.error(f"CLOSEANFNCTRANS failed for {priority_fncnum}: {detail}")
         return jsonify({"ok": False, "error": str(e), "detail": detail}), 500
     except Exception as e:
+        logger.error(f"journal_finalize error for {priority_fncnum}: {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
