@@ -4869,9 +4869,9 @@ def bank_line_create_invoice_receipt():
         else:
             full_accname = accname
 
-        # 1. Create EINVOICES header
+        # 1. Create EINVOICES header (use ACCNAME — same convention as TINVOICES)
         header_payload = {
-            "CUSTNAME":   full_accname,
+            "ACCNAME":    full_accname,
             "IVDATE":     ivdate,
             "DETAILS":    details,
             "BRANCHNAME": branchname,

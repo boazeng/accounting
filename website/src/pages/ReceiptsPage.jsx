@@ -386,7 +386,7 @@ export default function ReceiptsPage() {
     }
   }
 
-  async function loadLastEinvoice(accname, branchname) {
+  async function loadLastEinvoice(accname, branchname, bankAmount) {
     if (!accname) return
     setIrLoading(true)
     setIrPrevNote('')
@@ -404,12 +404,19 @@ export default function ReceiptsPage() {
       setIrDetails(res.details || '')
       setIrPrevNote(`הועתק מ-${res.ivnum} (${fmt((res.ivdate || '').slice(0, 10))})`)
       if (res.items?.length > 0) {
-        setIrItems(res.items.map(it => ({
-          PARTNAME: it.PARTNAME || '000',
-          PDES:     it.PDES || '',
-          TQUANT:   Number(it.TQUANT) || 1,
-          PRICE:    Number(it.PRICE) || 0,
-        })))
+        // Scale prices so total = bank transaction amount (current payment)
+        const target = bankAmount || 0
+        const prevTotal = res.items.reduce((s, it) => s + (Number(it.PRICE) * Number(it.TQUANT) || 0), 0)
+        setIrItems(res.items.map(it => {
+          const tquant = Number(it.TQUANT) || 1
+          let price = Number(it.PRICE) || 0
+          if (prevTotal > 0 && target > 0) {
+            price = Math.round((price / prevTotal) * target * 100) / 100
+          } else if (target > 0) {
+            price = target
+          }
+          return { PARTNAME: it.PARTNAME || '000', PDES: it.PDES || '', TQUANT: tquant, PRICE: price }
+        }))
       }
     } catch (e) {
       setIrPrevNote(`שגיאה בטעינה: ${e.message}`)
@@ -440,7 +447,7 @@ export default function ReceiptsPage() {
             const s = suggestions[0]
             setIrAccname(s.accname)
             setIrAccdes(s.accdes || '')
-            await loadLastEinvoice(s.accname, txn.BRANCHNAME || '')
+            await loadLastEinvoice(s.accname, txn.BRANCHNAME || '', txn.SUM1)
           } else if (suggestions.length > 1) {
             setCustSuggestions(suggestions)
           }
@@ -1062,7 +1069,7 @@ export default function ReceiptsPage() {
                       setIrAccname(c.accname)
                       setIrAccdes(c.accdes || '')
                       setCustSuggestions([])
-                      await loadLastEinvoice(c.accname, irModal.BRANCHNAME || '')
+                      await loadLastEinvoice(c.accname, irModal.BRANCHNAME || '', irModal?.SUM1)
                     }} style={{
                       textAlign: 'right', padding: '6px 10px', borderRadius: 6,
                       border: '1px solid #ddd6fe', background: '#f5f3ff',
@@ -1087,7 +1094,7 @@ export default function ReceiptsPage() {
                 onBlur={async e => {
                   const v = e.target.value.trim()
                   if (v.length >= 2) {
-                    await loadLastEinvoice(v, irModal?.BRANCHNAME || '')
+                    await loadLastEinvoice(v, irModal?.BRANCHNAME || '', irModal?.SUM1)
                     if (!irAccdes) {
                       fetch(`${API}/api/receipts/priority-accounts?q=${encodeURIComponent(v)}`)
                         .then(r => r.json())
