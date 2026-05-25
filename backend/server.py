@@ -2831,6 +2831,53 @@ def sync_accounts():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/accounts/sync", methods=["POST"])
+def sync_all_accounts():
+    """Fetch ALL accounts (ACCNAME, ACCDES) from Priority ACCOUNTS table and cache locally."""
+    try:
+        url  = _prio_url()
+        auth = _prio_auth()
+        hdrs = _PRIO_READ_HEADERS
+        all_accounts = []
+        skip = 0
+        while True:
+            r = http_requests.get(
+                f"{url}/ACCOUNTS?$select=ACCNAME,ACCDES&$orderby=ACCNAME&$top=1000&$skip={skip}",
+                headers=hdrs, auth=auth, timeout=60,
+            )
+            r.raise_for_status()
+            rows = r.json().get("value", [])
+            if not rows:
+                break
+            for row in rows:
+                accname = (row.get("ACCNAME") or "").strip()
+                if accname:
+                    all_accounts.append({
+                        "accname": accname,
+                        "accdes": (row.get("ACCDES") or "").strip(),
+                    })
+            if len(rows) < 1000:
+                break
+            skip += 1000
+        delivery_notes_db.save_full_accounts_cache(all_accounts)
+        return jsonify({"ok": True, "count": len(all_accounts)})
+    except Exception as e:
+        logger.error(f"Sync all accounts failed: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/accounts/status", methods=["GET"])
+def all_accounts_status():
+    """Return cache status for the full accounts list."""
+    try:
+        cached = delivery_notes_db.get_full_accounts_cache()
+        if not cached:
+            return jsonify({"ok": True, "count": 0, "updatedAt": None})
+        return jsonify({"ok": True, "count": cached["count"], "updatedAt": cached["updated_at"]})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.route("/api/reports/profit-loss", methods=["POST"])
 def report_profit_loss():
     """Fetch FNCTRANS for accounts matching '4XX-{branch}' in given date range."""
@@ -5174,56 +5221,33 @@ def bank_line_create_journal():
 
 @app.route("/api/receipts/journal/<priority_fncnum>/finalize", methods=["POST"])
 def journal_finalize(priority_fncnum):
-    """Register journal entry (רישום תנועת יומן).
-    Fetches the draft from Priority, deletes it, then re-creates with FINAL='Y'
-    so Priority assigns a proper sequential FNCNUM (e.g. 26007xxx).
+    """Register journal entry (רישום תנועת יומן) via PATCH FINAL='Y'.
+    If the entry is already FINAL='Y' in Priority (e.g. T-prefixed entries that were
+    previously patched), we skip the PATCH and just mark locally as final.
+    Priority OData does not support CLOSEANFNCTRANS or creating entries with FINAL='Y',
+    so PATCH is the only available mechanism; the FNCNUM stays T-prefixed.
     """
     try:
-        # Step 1: Fetch draft details including line items
+        # Step 1: Fetch current state
         get_resp = http_requests.get(
-            f"{_prio_url()}/FNCTRANS('{priority_fncnum}')"
-            "?$expand=FNCITEMS_SUBFORM($select=ACCNAME,DEBIT1,CREDIT1,DETAILS)",
+            f"{_prio_url()}/FNCTRANS('{priority_fncnum}')?$select=FNCNUM,FINAL",
             headers={"Accept": "application/json", "OData-Version": "4.0"},
             auth=_prio_auth(), timeout=20, verify=False,
         )
         get_resp.raise_for_status()
-        draft = get_resp.json()
+        current = get_resp.json()
+        already_final = current.get("FINAL") == "Y"
 
-        fncdate    = (draft.get("FNCDATE") or "")[:10]
-        branchname = draft.get("BRANCHNAME", "")
-        details    = draft.get("DETAILS", "")
-        items      = draft.get("FNCITEMS_SUBFORM") or []
+        # Step 2: PATCH FINAL='Y' only if not already final
+        if not already_final:
+            patch_resp = http_requests.patch(
+                f"{_prio_url()}/FNCTRANS('{priority_fncnum}')",
+                json={"FINAL": "Y"},
+                headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=20,
+            )
+            patch_resp.raise_for_status()
 
-        if not items:
-            return jsonify({"ok": False, "error": "לא נמצאו שורות בתנועה — אי אפשר לרשום"}), 422
-
-        # Step 2: Create new FNCTRANS with FINAL='Y' to get a proper sequential FNCNUM.
-        # Priority does not allow DELETE on drafts via OData, so the old T-prefixed entry
-        # stays but it was never processed through Priority's accounting engine.
-        payload = {
-            "FNCDATE":    fncdate,
-            "BALDATE":    fncdate,
-            "BRANCHNAME": branchname,
-            "DETAILS":    details,
-            "FINAL":      "Y",
-            "FNCITEMS_SUBFORM": [
-                {
-                    "ACCNAME":  it.get("ACCNAME", ""),
-                    "DEBIT1":   it.get("DEBIT1", 0),
-                    "CREDIT1":  it.get("CREDIT1", 0),
-                    "DETAILS":  it.get("DETAILS") or details,
-                }
-                for it in items
-            ],
-        }
-        post_resp = http_requests.post(
-            f"{_prio_url()}/FNCTRANS",
-            json=payload,
-            headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=20,
-        )
-        post_resp.raise_for_status()
-        result     = post_resp.json()
-        final_fncnum = result.get("FNCNUM") or priority_fncnum
+        final_fncnum = current.get("FNCNUM") or priority_fncnum
 
         if action_queue_db:
             action_queue_db.mark_final_by_priority_fncnum(priority_fncnum, final_fncnum)
@@ -5271,15 +5295,29 @@ def get_bank_gl_account():
 
 @app.route("/api/receipts/priority-accounts", methods=["GET"])
 def priority_accounts_search():
-    """Search Priority chart of accounts (ACCOUNTS) for autocomplete."""
+    """Search Priority chart of accounts (ACCOUNTS) for autocomplete. Uses local cache when available."""
     try:
         q = (request.args.get("q") or "").strip()
+        if len(q) < 1:
+            return jsonify({"ok": True, "accounts": []})
+
+        # Search from local cache (fast, no Priority API call)
+        cached = delivery_notes_db.get_full_accounts_cache()
+        if cached and cached.get("data"):
+            q_lower = q.lower()
+            results = [
+                a for a in cached["data"]
+                if q_lower in a["accname"].lower() or q_lower in a["accdes"].lower()
+            ][:50]
+            return jsonify({"ok": True, "accounts": results, "from_cache": True})
+
+        # Fallback: live search from Priority
         if len(q) < 2:
             return jsonify({"ok": True, "accounts": []})
         q_safe = q.replace("'", "")
         flt = f"contains(ACCNAME,'{q_safe}') or contains(ACCDES,'{q_safe}')"
         r = http_requests.get(
-            f"{_prio_url()}/ACCOUNTS?$filter={flt}&$select=ACCNAME,ACCDES&$top=15",
+            f"{_prio_url()}/ACCOUNTS?$filter={flt}&$select=ACCNAME,ACCDES&$top=50",
             headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=10,
         )
         r.raise_for_status()
@@ -5340,7 +5378,8 @@ def bank_line_record_action():
 
 @app.route("/api/receipts/customer-search", methods=["GET"])
 def customer_search():
-    """Search customers who have a CINVOICES invoice matching the given amount and branch.
+    """Search customers matching the given amount and branch.
+    First searches CINVOICES; if nothing found, falls back to EINVOICES (for management fees etc.).
 
     Query params:
       amount     — exact invoice amount to match (from bank line SUM1)
@@ -5358,9 +5397,10 @@ def customer_search():
         except ValueError:
             return jsonify({"ok": True, "results": []})
 
+        branch_safe = branchname.replace("'", "") if branchname and branchname not in ("000", "all") else ""
+
         flt = f"TOTPRICE eq {amount} and STATDES ne 'מבוטלת'"
-        if branchname and branchname not in ("000", "all"):
-            branch_safe = branchname.replace("'", "")
+        if branch_safe:
             flt += f" and BRANCHNAME eq '{branch_safe}'"
 
         r = http_requests.get(
@@ -5388,6 +5428,39 @@ def customer_search():
                 "totprice":   inv.get("TOTPRICE", 0),
                 "statdes":    inv.get("STATDES", ""),
             }
+
+        # Fallback: if CINVOICES returned nothing, search EINVOICES for same amount+branch
+        # (covers management fees / recurring payments billed only via EINVOICES)
+        if not seen:
+            try:
+                eflt = f"TOTPRICE eq {amount}"
+                if branch_safe:
+                    eflt += f" and BRANCHNAME eq '{branch_safe}'"
+                er = http_requests.get(
+                    f"{_prio_url()}/EINVOICES?$filter={eflt}"
+                    "&$select=CUSTNAME,CDES,IVNUM,IVDATE,TOTPRICE,BRANCHNAME"
+                    "&$orderby=IVDATE desc&$top=10",
+                    headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=15,
+                )
+                if er.ok:
+                    for inv in er.json().get("value", []):
+                        custname = (inv.get("CUSTNAME") or "").strip()
+                        if not custname or custname in seen:
+                            continue
+                        inv_branch = (inv.get("BRANCHNAME") or "").strip()
+                        accname_full = f"{custname}-{inv_branch}" if inv_branch and inv_branch != "000" else custname
+                        seen[custname] = {
+                            "accname":    accname_full,
+                            "accdes":     (inv.get("CDES") or "").strip(),
+                            "branchname": inv_branch,
+                            "ivnum":      inv.get("IVNUM", ""),
+                            "ivdate":     inv.get("IVDATE", ""),
+                            "totprice":   inv.get("TOTPRICE", 0),
+                            "statdes":    "",
+                            "from_einvoice": True,
+                        }
+            except Exception:
+                pass
 
         # Check Priority for existing final receipts at this amount for any of the found customers
         if seen:
