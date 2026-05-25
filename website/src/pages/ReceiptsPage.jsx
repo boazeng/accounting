@@ -78,6 +78,7 @@ export default function ReceiptsPage() {
   const [journalSuccess, setJournalSuccess]           = useState('')
   const [journalAccSuggestions, setJournalAccSuggestions] = useState([])
   const [journalAccSearching, setJournalAccSearching]     = useState(false)
+  const [finalizingJournal, setFinalizingJournal]         = useState(null) // priority_fncnum being finalized
 
   // Invoice receipt modal state
   const [irModal, setIrModal]         = useState(null)
@@ -391,7 +392,7 @@ export default function ReceiptsPage() {
       const params = new URLSearchParams({ accname, branchname: branchname || '' })
       const res = await fetch(`${API}/api/receipts/last-einvoice?${params}`).then(r => r.json())
       if (res.ok && res.found) {
-        setIrDetails(res.details_next || '')
+        setIrDetails(res.details || '')
         if (res.items?.length > 0) {
           setIrItems(res.items.map(it => ({
             PARTNAME: it.PARTNAME || '000',
@@ -479,6 +480,26 @@ export default function ReceiptsPage() {
       if (res.ok) setJournalAccSuggestions(res.accounts || [])
     } catch { /* silent */ } finally {
       setJournalAccSearching(false)
+    }
+  }
+
+  async function finalizeJournal(priorityFncnum) {
+    if (!window.confirm(`להפוך פקודת יומן ${priorityFncnum} לסופית בפריוריטי?\n(פעולה זו אינה הפיכה)`)) return
+    setFinalizingJournal(priorityFncnum)
+    try {
+      const resp = await fetch(`${API}/api/receipts/journal/${encodeURIComponent(priorityFncnum)}/finalize`, { method: 'POST' })
+      if (!resp.ok && resp.headers.get('content-type')?.includes('text/html')) {
+        throw new Error(`HTTP ${resp.status} — ייתכן שהשרת לא הופעל מחדש`)
+      }
+      const data = await resp.json()
+      if (!data.ok) throw new Error(data.detail?.error?.message || data.error || 'שגיאה')
+      setDoneActions(prev => prev.map(it =>
+        it.priority_fncnum === priorityFncnum ? { ...it, is_final: true } : it
+      ))
+    } catch (e) {
+      alert('שגיאה בהפיכה לסופי: ' + e.message)
+    } finally {
+      setFinalizingJournal(null)
     }
   }
 
@@ -622,11 +643,12 @@ export default function ReceiptsPage() {
                         <th>חשבון נגדי</th>
                         <th>סניף</th>
                         <th>מס׳ בפריוריטי</th>
+                        <th>סטטוס</th>
                       </tr>
                     </thead>
                     <tbody>
                       {sentJournals.map(item => (
-                        <tr key={item.id} style={{ opacity: 0.75 }}>
+                        <tr key={item.id} style={{ opacity: item.is_final ? 0.55 : 0.85 }}>
                           <td>{fmt(item.curdate)}</td>
                           <td>{item.details}</td>
                           <td><AmountCell sum1={item.sum1} direction={item.direction} /></td>
@@ -641,6 +663,20 @@ export default function ReceiptsPage() {
                           <td>{item.branchname}</td>
                           <td className="receipts-mono" style={{ color: '#6c5ce7', fontWeight: 700 }}>
                             {item.priority_fncnum}
+                          </td>
+                          <td>
+                            {item.is_final
+                              ? <span style={{ color: '#15803d', fontWeight: 700, fontSize: 12 }}>סופי</span>
+                              : <button
+                                  onClick={() => finalizeJournal(item.priority_fncnum)}
+                                  disabled={finalizingJournal === item.priority_fncnum}
+                                  style={{ fontSize: 11, padding: '2px 8px', cursor: 'pointer',
+                                           background: '#fff7ed', border: '1px solid #b45309',
+                                           borderRadius: 4, color: '#b45309' }}
+                                >
+                                  {finalizingJournal === item.priority_fncnum ? '...' : 'הפוך לסופי'}
+                                </button>
+                            }
                           </td>
                         </tr>
                       ))}
@@ -1058,11 +1094,11 @@ export default function ReceiptsPage() {
             </div>
 
             <div className="receipts-modal-field">
-              <label>פרטים</label>
-              <input type="text" value={irDetails} onChange={e => setIrDetails(e.target.value)} />
+              <label>פרטים {irDetails && <span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 400 }}>(מחשבונית קודמת — ניתן לשנות)</span>}</label>
+              <input type="text" value={irDetails} onChange={e => setIrDetails(e.target.value)} placeholder="פרטי החשבונית" />
             </div>
 
-            {irLoading && <p style={{ fontSize: 13, color: '#6b7280', margin: '4px 0' }}>טוען פריטים מחשבונית קודמת...</p>}
+            {irLoading && <p style={{ fontSize: 13, color: '#6b7280', margin: '4px 0' }}>טוען פרטים מחשבונית קודמת...</p>}
             {!irLoading && (
               <div style={{ marginBottom: 12 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
