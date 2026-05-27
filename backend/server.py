@@ -5326,6 +5326,7 @@ def bank_line_create_journal():
             "BALDATE":    ivdate,
             "BRANCHNAME": branchname,
             "DETAILS":    details,
+            "FNCREF":     txn_id,   # bank transaction ID → visible in BANKRECONSP for manual matching
             "FNCITEMS_SUBFORM": [
                 {"ACCNAME": bank_acc, "DEBIT1": bank_debit, "CREDIT1": bank_credit, "DETAILS": details},
                 {"ACCNAME": cp_acc,   "DEBIT1": cp_debit,   "CREDIT1": cp_credit,   "DETAILS": details},

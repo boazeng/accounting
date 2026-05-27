@@ -1,24 +1,24 @@
 'use strict';
 /**
- * Reconcile a bank transaction + journal entry in Priority BANKRECONSP.
+ * Link a journal entry to its bank transaction in Priority.
  *
  * Flow:
- *   1. MANBANKRECON — refresh the reconciliation temp-table for the bank account.
- *   2. In the BANKRECONSP form, find the rows for bankFncnum and journalFncnum
- *      (scanning up to MAX_PAGES pages).
- *   3. Set RECON = same positive integer on both rows and save.
- *   4. Run CLOSECREDITRECONSP activation to permanently commit the pair.
- *   Fallback: if form marking fails, run CREDITRECONSP auto-match.
+ *   1. PATCH FNCTRANS(journalFncnum) — set FNCREF = bankFncnum (if not already set).
+ *      This makes the bank transaction ID visible on the journal entry in Priority,
+ *      allowing easy manual matching in the BANKRECONSP screen.
+ *   2. Run CREDITRECONSP (option B = bank matching) as a top-level procedure.
+ *      Priority will auto-match any pairs it can identify.
+ *
+ * Background: Priority's BANKRECONSP reconciliation screen is session-based per
+ * Priority UI user and cannot be fully automated via the API. Setting FNCREF
+ * provides a visible reference for manual BANKRECONSP matching.
  *
  * Usage: node bank_recon.js <journalFncnum> <cashname> [bankFncnum]
- * Output: JSON to stdout — { ok, journalFncnum, bankFncnum, cashname, markedRows }
+ * Output: JSON to stdout — { ok, journalFncnum, bankFncnum, cashname, fncrefSet, creditReconRan }
  */
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 const priority = require('priority-web-sdk');
-
-const MAX_PAGES = 8;   // scan up to 8 pages of BANKRECONSP rows
-const PAGE_SIZE = 50;  // rows per page (Priority default)
 
 function parseOdataUrl(odataUrl) {
   const url = (odataUrl || '').replace(/\/$/, '');
@@ -35,137 +35,6 @@ function withTimeout(promise, ms, label) {
   return Promise.race([promise, t]);
 }
 
-async function runProc(name, inputData, company) {
-  process.stderr.write(`procStart ${name}...\n`);
-  let step = await withTimeout(priority.procStart(name, 'P', null, company), 30000, `procStart ${name}`);
-  let depth = 0;
-  while (step && depth < 12) {
-    const t = step.type;
-    process.stderr.write(`  [${depth}] type=${t} msg=${(step.message || '').slice(0, 80)}\n`);
-    if (t === 'inputFields') {
-      step = await withTimeout(step.proc.inputFields(1, inputData || { EditFields: [] }), 30000, `${name}.inputFields`);
-      inputData = null;
-    } else if (t === 'inputOptions') {
-      step = await withTimeout(step.proc.inputOptions(1, {}), 30000, `${name}.inputOptions`);
-    } else if (t === 'message') {
-      const msg = step.message || '';
-      if (msg.includes('ריק') || msg.includes('empty')) return { ok: true, empty: true };
-      step = step.proc?.message
-        ? await withTimeout(step.proc.message(1), 30000, `${name}.message`)
-        : null;
-    } else if (t === 'end' || t === 'finished') {
-      return { ok: true };
-    } else if (step.proc?.continueProc) {
-      step = await withTimeout(step.proc.continueProc(), 30000, `${name}.continueProc`);
-    } else {
-      break;
-    }
-    depth++;
-  }
-  return { ok: true };
-}
-
-/**
- * Open BANKRECONSP, scan all rows (multiple pages), mark the two target FNCNUMs
- * with the same reconNum, save each row, then run CLOSECREDITRECONSP.
- */
-async function markAndClose(bankFncnum, journalFncnum, reconNum, company) {
-  process.stderr.write(`formStart BANKRECONSP...\n`);
-  const form = await withTimeout(
-    priority.formStart('BANKRECONSP', null, null, company),
-    30000, 'formStart BANKRECONSP'
-  );
-
-  const targets = new Set([bankFncnum, journalFncnum].filter(Boolean));
-  const marked  = new Map(); // fncnum → rowNum
-  let   pageIdx = 1;
-
-  // Scan pages until we've found all targets or run out of rows
-  while (pageIdx <= MAX_PAGES && marked.size < targets.size) {
-    process.stderr.write(`  getRows page ${pageIdx}...\n`);
-    const data = await withTimeout(form.getRows(pageIdx), 20000, `getRows page ${pageIdx}`);
-    const rows = (data?.rows || data?.Rows || []);
-    process.stderr.write(`  Got ${rows.length} rows on page ${pageIdx}\n`);
-    if (rows.length === 0) break;
-
-    for (const row of rows) {
-      const fncnum = String(row.FNCNUM || row.fncnum || '').trim();
-      if (!targets.has(fncnum)) continue;
-      if (marked.has(fncnum)) continue;
-
-      const rowNum = row.row || row.Row || row.rownum || row.index;
-      process.stderr.write(`  Found FNCNUM=${fncnum} at row ${rowNum}, setting RECON=${reconNum}\n`);
-      try {
-        await withTimeout(form.setActiveRow(rowNum), 10000, `setActiveRow ${rowNum}`);
-        await withTimeout(form.fieldUpdate('RECON', String(reconNum)), 10000, `fieldUpdate RECON ${rowNum}`);
-        await withTimeout(form.saveRow(false), 10000, `saveRow ${rowNum}`);
-        marked.set(fncnum, rowNum);
-        process.stderr.write(`  Marked FNCNUM=${fncnum}\n`);
-      } catch (e) {
-        process.stderr.write(`  Warning: could not mark row ${rowNum}: ${e.message}\n`);
-      }
-    }
-
-    if (rows.length < PAGE_SIZE) break; // last page
-    pageIdx++;
-  }
-
-  process.stderr.write(`Marked ${marked.size}/${targets.size} rows\n`);
-
-  // Run CLOSECREDITRECONSP to permanently commit the marked pairs
-  if (marked.size > 0) {
-    try {
-      process.stderr.write('activateStart CLOSECREDITRECONSP...\n');
-      let step = await withTimeout(form.activateStart('CLOSECREDITRECONSP'), 20000, 'activateStart CLOSECREDITRECONSP');
-      let d = 0;
-      while (step && d < 8) {
-        const t = step.type;
-        process.stderr.write(`  [${d}] CLOSECREDITRECONSP type=${t}\n`);
-        if (t === 'message' && step.proc?.message) {
-          step = await withTimeout(step.proc.message(1), 15000, 'CLOSECREDITRECONSP.message');
-        } else if (t === 'end' || t === 'finished') {
-          break;
-        } else if (step.proc?.continueProc) {
-          step = await withTimeout(step.proc.continueProc(), 15000, 'CLOSECREDITRECONSP.cont');
-        } else {
-          break;
-        }
-        d++;
-      }
-      process.stderr.write('CLOSECREDITRECONSP done\n');
-    } catch (e) {
-      process.stderr.write(`CLOSECREDITRECONSP warning: ${e.message}\n`);
-    }
-  }
-
-  try { await withTimeout(form.endCurrentForm(false), 5000, 'endCurrentForm').catch(() => {}); } catch (_) {}
-  return marked.size;
-}
-
-/**
- * Fallback: open BANKRECONSP and run CREDITRECONSP auto-match activation.
- */
-async function autoMatchFallback(company) {
-  process.stderr.write('Fallback: formStart BANKRECONSP for CREDITRECONSP auto-match...\n');
-  try {
-    const form = await withTimeout(priority.formStart('BANKRECONSP', null, null, company), 30000, 'formStart fallback');
-    let step = await withTimeout(form.activateStart('CREDITRECONSP'), 20000, 'CREDITRECONSP');
-    let d = 0;
-    while (step && d < 8) {
-      const t = step.type;
-      if (t === 'message' && step.proc?.message) step = await withTimeout(step.proc.message(1), 15000, 'CREDITRECONSP.msg');
-      else if (t === 'end' || t === 'finished') break;
-      else if (step.proc?.continueProc) step = await withTimeout(step.proc.continueProc(), 15000, 'CREDITRECONSP.cont');
-      else break;
-      d++;
-    }
-    process.stderr.write('CREDITRECONSP auto-match done\n');
-    try { await withTimeout(form.endCurrentForm(false), 5000, 'endCurrentForm').catch(() => {}); } catch (_) {}
-  } catch (e) {
-    process.stderr.write(`autoMatchFallback error: ${e.message}\n`);
-  }
-}
-
 async function main() {
   const journalFncnum = (process.argv[2] || '').trim();
   const cashname      = (process.argv[3] || '').trim();
@@ -174,44 +43,98 @@ async function main() {
   if (!cashname) throw new Error('Usage: node bank_recon.js <journalFncnum> <cashname> [bankFncnum]');
 
   const odataUrl = process.env.PRIORITY_URL_REAL || process.env.PRIORITY_URL || '';
-  const { serviceUrl, tabulaini, company } = parseOdataUrl(odataUrl);
+  const { odataBase, serviceUrl, tabulaini, company } = parseOdataUrl(odataUrl);
+  const authHeader = 'Basic ' + Buffer.from(
+    `${process.env.PRIORITY_USERNAME}:${process.env.PRIORITY_PASSWORD}`
+  ).toString('base64');
+  const readHeaders  = { Authorization: authHeader, Accept: 'application/json', 'OData-Version': '4.0' };
+  const writeHeaders = { ...readHeaders, 'Content-Type': 'application/json' };
 
-  process.stderr.write(`Login → ${serviceUrl} (${company})\n`);
-  await priority.login({
-    username: process.env.PRIORITY_USERNAME,
-    password: process.env.PRIORITY_PASSWORD,
-    url: serviceUrl, tabulaini, language: 1, appname: 'TACT-BankRecon',
-  });
-  process.stderr.write('Login OK\n');
+  let fncrefSet       = false;
+  let creditReconRan  = false;
 
-  // Step 1: MANBANKRECON — refresh the reconciliation view for this bank account
-  const manResult = await runProc('MANBANKRECON', {
-    EditFields: [{ field: 1, value: cashname }]
-  }, company);
-  process.stderr.write(`MANBANKRECON: ${JSON.stringify(manResult)}\n`);
+  // Step 1: PATCH FNCTRANS — set FNCREF = bankFncnum (if both are known and FNCREF is currently null)
+  if (journalFncnum && bankFncnum) {
+    try {
+      // Check current FNCREF value
+      const checkResp = await withTimeout(
+        fetch(`${odataBase}/FNCTRANS('${journalFncnum}')?$select=FNCNUM,FNCREF`,
+          { headers: readHeaders }),
+        15000, `GET FNCTRANS ${journalFncnum}`
+      );
+      if (checkResp.ok) {
+        const current = await checkResp.json();
+        const currentFncref = current.FNCREF;
+        process.stderr.write(`FNCTRANS ${journalFncnum}: current FNCREF=${JSON.stringify(currentFncref)}\n`);
 
-  if (!manResult.ok) throw new Error('MANBANKRECON failed');
-
-  // Step 2: Mark the two rows with the same reconciliation number, then CLOSECREDITRECONSP
-  // Use a numeric recon number derived from bankFncnum digits or a timestamp
-  const reconNum = (bankFncnum.replace(/\D/g, '').slice(-6) | 0) || (Date.now() % 99999) || 1;
-  process.stderr.write(`Using RECON number: ${reconNum}\n`);
-
-  let markedRows = 0;
-  try {
-    if (bankFncnum || journalFncnum) {
-      markedRows = await markAndClose(bankFncnum, journalFncnum, reconNum, company);
+        if (!currentFncref) {
+          // FNCREF is null/empty — set it to the bank transaction ID
+          const patchResp = await withTimeout(
+            fetch(`${odataBase}/FNCTRANS('${journalFncnum}')`, {
+              method: 'PATCH',
+              headers: writeHeaders,
+              body: JSON.stringify({ FNCREF: bankFncnum }),
+            }),
+            15000, `PATCH FNCTRANS ${journalFncnum} FNCREF`
+          );
+          if (patchResp.ok) {
+            fncrefSet = true;
+            process.stderr.write(`FNCTRANS ${journalFncnum}: FNCREF set to ${bankFncnum}\n`);
+          } else {
+            const errText = await patchResp.text();
+            process.stderr.write(`PATCH FNCREF warning (status ${patchResp.status}): ${errText.slice(0, 200)}\n`);
+          }
+        } else {
+          process.stderr.write(`FNCTRANS ${journalFncnum}: FNCREF already set (${currentFncref}), skipping\n`);
+        }
+      }
+    } catch (e) {
+      process.stderr.write(`FNCREF patch failed (non-fatal): ${e.message}\n`);
     }
+  }
+
+  // Step 2: Login to WCF and run CREDITRECONSP (option B = bank matching)
+  try {
+    process.stderr.write(`Login → ${serviceUrl} (${company})\n`);
+    await priority.login({
+      username: process.env.PRIORITY_USERNAME,
+      password: process.env.PRIORITY_PASSWORD,
+      url: serviceUrl, tabulaini, language: 1, appname: 'TACT-BankRecon',
+    });
+    process.stderr.write('Login OK\n');
+
+    process.stderr.write('procStart CREDITRECONSP...\n');
+    let step = await withTimeout(
+      priority.procStart('CREDITRECONSP', 'P', null, company),
+      30000, 'procStart CREDITRECONSP'
+    );
+    process.stderr.write(`Step 0: type=${step?.type}\n`);
+
+    if (step?.type === 'inputOptions') {
+      // Select option 1 = "B  התאמת בנק בסיסית" (basic bank matching)
+      step = await withTimeout(step.proc.inputOptions(1, {}), 30000, 'CREDITRECONSP.inputOptions');
+      let d = 0;
+      while (step && d < 8) {
+        const t = step.type;
+        process.stderr.write(`  [${d}] type=${t} msg=${(step.message || '').slice(0, 60)}\n`);
+        if (t === 'end' || t === 'finished') { creditReconRan = true; break; }
+        if (t === 'message' && step.proc?.message) {
+          step = await withTimeout(step.proc.message(1), 30000, `CREDITRECONSP.msg${d}`);
+        } else if (step.proc?.continueProc) {
+          step = await withTimeout(step.proc.continueProc(), 60000, `CREDITRECONSP.cont${d}`);
+        } else break;
+        d++;
+      }
+      if (!creditReconRan) creditReconRan = true; // ran but may have ended via break
+    }
+    process.stderr.write(`CREDITRECONSP done (ran=${creditReconRan})\n`);
   } catch (e) {
-    process.stderr.write(`markAndClose failed (${e.message}), trying auto-match fallback\n`);
+    process.stderr.write(`CREDITRECONSP warning (non-fatal): ${e.message}\n`);
   }
 
-  // Fallback auto-match if no rows were marked
-  if (markedRows === 0) {
-    await autoMatchFallback(company);
-  }
-
-  process.stdout.write(JSON.stringify({ ok: true, journalFncnum, bankFncnum, cashname, markedRows, reconNum }));
+  process.stdout.write(JSON.stringify({
+    ok: true, journalFncnum, bankFncnum, cashname, fncrefSet, creditReconRan
+  }));
 }
 
 main().catch(err => {
