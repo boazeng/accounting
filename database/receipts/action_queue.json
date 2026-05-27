@@ -207,5 +207,26 @@
     "done_at": "2026-05-27T13:38:09.440896",
     "is_final": true,
     "final_at": "2026-05-27T13:40:15.742372"
+  },
+  {
+    "id": "5d99e659-bc5f-4f88-9f6a-a296653307a5",
+    "fncnum": "BP16136-1",
+    "curdate": "2026-05-19",
+    "details": "ע.העב.ב",
+    "accname1": "4027-103",
+    "accdes1": "",
+    "accname2": "620-0-103",
+    "accdes2": "ריבית ועמלות לבנקים",
+    "sum1": 5.0,
+    "direction": "-",
+    "branchname": "103",
+    "action": "journal",
+    "priority_fncnum": "26007535",
+    "cashname": "103-200",
+    "status": "done",
+    "created_at": "2026-05-27T14:20:48.206558",
+    "done_at": "2026-05-27T14:20:48.242635",
+    "is_final": true,
+    "final_at": "2026-05-27T14:22:08.218654"
   }
 ]
