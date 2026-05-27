@@ -5047,52 +5047,69 @@ def bank_line_create_invoice_receipt():
             except Exception as item_err:
                 logger.warning(f"EINVOICEITEMS_SUBFORM item failed (non-fatal): {item_err}")
 
-        # Check actual TOTPRICE Priority calculated and add a "הפרש" line for small rounding differences.
-        # Guard: only fires when TOTPRICE > 0 (items were accepted) and diff is tiny (≤ 5 ₪).
-        # If TOTPRICE comes back null/0 (items not yet computed or failed), skip — don't add a
-        # massive correction that would blow up the payment subform.
-        import time as _time_ir; _time_ir.sleep(1.0)
-        try:
-            chk = http_requests.get(
-                f"{_prio_url()}/EINVOICES({key})?$select=TOTPRICE",
-                headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=15, verify=False,
-            )
-            if chk.ok:
-                actual_total = float(chk.json().get("TOTPRICE") or 0)
-                logger.info(f"EINVOICES {priority_ivnum}: TOTPRICE={actual_total}, bank_amount={amount}")
-                diff = round(amount - actual_total, 2)
-                max_correction = min(5.0, round(amount * 0.01, 2))  # at most 1% or 5 ₪
-                if actual_total > 0 and 0.005 <= abs(diff) <= max_correction:
-                    corr_pre_vat = round(diff / (1 + VAT_RATE), 2)
-                    logger.info(f"EINVOICES {priority_ivnum}: adding הפרש line diff={diff}, pre_vat={corr_pre_vat}")
-                    http_requests.post(
-                        f"{_prio_url()}/EINVOICES({key})/EINVOICEITEMS_SUBFORM",
-                        json={"PARTNAME": "DIFF", "PDES": "הפרש", "TQUANT": 1.0, "PRICE": corr_pre_vat},
-                        headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=15, verify=False,
-                    )
-                elif actual_total <= 0:
-                    logger.warning(f"EINVOICES {priority_ivnum}: TOTPRICE=0/null — skipping הפרש (items may not have saved)")
-                elif abs(diff) > max_correction:
-                    logger.warning(f"EINVOICES {priority_ivnum}: diff={diff} exceeds threshold — skipping הפרש")
-        except Exception as _diff_err:
-            logger.warning(f"הפרש check failed (non-fatal): {_diff_err}")
+        # ── TOTPRICE correction loop ──────────────────────────────────────────
+        # 600 / 1.18 = 508.4745... → 508.47 → 508.47*1.18 = 599.99 ≠ 600.
+        # We query Priority's actual TOTPRICE (with retry until > 0), then add
+        # small "הפרש" lines until TOTPRICE == bank_amount exactly (max 3 passes).
+        import time as _time_ir
 
-        # Payment amount: re-query TOTPRICE so QPRICE exactly matches what Priority computed.
-        # Use bank_amount as fallback if re-query fails.
-        pay_amount = round(amount, 2)
-        try:
-            import time as _time_pay; _time_pay.sleep(0.5)
-            _chk2 = http_requests.get(
-                f"{_prio_url()}/EINVOICES({key})?$select=TOTPRICE",
-                headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=15, verify=False,
-            )
-            if _chk2.ok:
-                _tp2 = float(_chk2.json().get("TOTPRICE") or 0)
-                if _tp2 > 0:
-                    pay_amount = round(_tp2, 2)
-                    logger.info(f"EINVOICES {priority_ivnum}: final TOTPRICE={_tp2}, QPRICE set to {pay_amount}")
-        except Exception as _pay_err:
-            logger.warning(f"TOTPRICE re-query failed (non-fatal): {_pay_err}")
+        def _query_totprice(retries=3, wait=1.2):
+            for _ in range(retries):
+                _time_ir.sleep(wait)
+                try:
+                    r = http_requests.get(
+                        f"{_prio_url()}/EINVOICES({key})?$select=TOTPRICE",
+                        headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=15, verify=False,
+                    )
+                    if r.ok:
+                        v = float(r.json().get("TOTPRICE") or 0)
+                        if v > 0:
+                            return v
+                except Exception:
+                    pass
+            return 0.0
+
+        def _pre_vat_for_diff(d):
+            """Find 2-dp pre-VAT price p such that p + round(p*VAT,2) == d exactly."""
+            p0 = round(d / (1 + VAT_RATE), 2)
+            for adj in [0, 0.01, -0.01, 0.02, -0.02]:
+                p = round(p0 + adj, 2)
+                if p <= 0:
+                    continue
+                if round(p + round(p * VAT_RATE, 2), 2) == round(d, 2):
+                    return p
+            return p0
+
+        actual_total = _query_totprice(retries=3, wait=1.2)
+        logger.info(f"EINVOICES {priority_ivnum}: initial TOTPRICE={actual_total}, bank={amount}")
+
+        for _pass in range(3):
+            if actual_total <= 0:
+                logger.warning(f"EINVOICES {priority_ivnum}: TOTPRICE=0 — items may not have saved")
+                break
+            diff = round(amount - actual_total, 2)
+            if abs(diff) < 0.005:
+                logger.info(f"EINVOICES {priority_ivnum}: TOTPRICE exact after pass {_pass}")
+                break
+            if abs(diff) > 5.0:
+                logger.warning(f"EINVOICES {priority_ivnum}: diff={diff} too large — skipping הפרש")
+                break
+            corr_pre_vat = _pre_vat_for_diff(abs(diff)) * (1 if diff > 0 else -1)
+            logger.info(f"EINVOICES {priority_ivnum}: pass={_pass} diff={diff} → הפרש pre_vat={corr_pre_vat}")
+            try:
+                http_requests.post(
+                    f"{_prio_url()}/EINVOICES({key})/EINVOICEITEMS_SUBFORM",
+                    json={"PARTNAME": "DIFF", "PDES": "הפרש", "TQUANT": 1.0, "PRICE": corr_pre_vat},
+                    headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=15, verify=False,
+                )
+            except Exception as _he:
+                logger.warning(f"הפרש POST failed: {_he}")
+                break
+            actual_total = _query_totprice(retries=2, wait=1.0)
+            logger.info(f"EINVOICES {priority_ivnum}: TOTPRICE after pass {_pass}: {actual_total}")
+
+        pay_amount = round(actual_total if actual_total > 0 else amount, 2)
+        logger.info(f"EINVOICES {priority_ivnum}: QPRICE={pay_amount}")
 
         # 3. POST payment to EPAYMENT2_SUBFORM — payment type 3 = bank transfer
         epay_payload = {
@@ -5554,9 +5571,12 @@ def get_bank_gl_account():
 def priority_accounts_search():
     """Search Priority chart of accounts (ACCOUNTS) for autocomplete. Uses local cache when available."""
     try:
-        q = (request.args.get("q") or "").strip()
+        q          = (request.args.get("q")          or "").strip()
+        branchname = (request.args.get("branchname") or "").strip()
         if len(q) < 1:
             return jsonify({"ok": True, "accounts": []})
+
+        suffix = f"-{branchname}" if (branchname and branchname != "000") else ""
 
         # Search from local cache (fast, no Priority API call)
         cached = accounts_cache_db.get_accounts_cache()
@@ -5564,7 +5584,8 @@ def priority_accounts_search():
             q_lower = q.lower()
             results = [
                 a for a in cached["data"]
-                if q_lower in a["accname"].lower() or q_lower in a["accdes"].lower()
+                if (q_lower in a["accname"].lower() or q_lower in a["accdes"].lower())
+                and (not suffix or a["accname"].endswith(suffix))
             ][:50]
             return jsonify({"ok": True, "accounts": results, "from_cache": True})
 
@@ -5578,8 +5599,11 @@ def priority_accounts_search():
             headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=10,
         )
         r.raise_for_status()
-        accounts = [{"accname": a["ACCNAME"], "accdes": a.get("ACCDES", "")}
-                    for a in r.json().get("value", [])]
+        accounts = [
+            {"accname": a["ACCNAME"], "accdes": a.get("ACCDES", "")}
+            for a in r.json().get("value", [])
+            if not suffix or a["ACCNAME"].endswith(suffix)
+        ]
         return jsonify({"ok": True, "accounts": accounts})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e), "accounts": []}), 500

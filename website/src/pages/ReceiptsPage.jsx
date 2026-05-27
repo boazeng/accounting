@@ -552,22 +552,24 @@ export default function ReceiptsPage() {
     }
   }
 
-  async function searchJournalAccounts(q) {
+  async function searchJournalAccounts(q, branchname) {
     if (!q || q.length < 2) { setJournalAccSuggestions([]); return }
     setJournalAccSearching(true)
     try {
-      const res = await fetch(`${API}/api/receipts/priority-accounts?q=${encodeURIComponent(q)}`).then(r => r.json())
+      const params = new URLSearchParams({ q, branchname: branchname || '' })
+      const res = await fetch(`${API}/api/receipts/priority-accounts?${params}`).then(r => r.json())
       if (res.ok) setJournalAccSuggestions(res.accounts || [])
     } catch { /* silent */ } finally {
       setJournalAccSearching(false)
     }
   }
 
-  async function searchAccounts(q) {
+  async function searchAccounts(q, branchname) {
     if (!q || q.length < 1) { setAccSuggestions([]); return }
     setAccSearching(true)
     try {
-      const res = await fetch(`${API}/api/receipts/priority-accounts?q=${encodeURIComponent(q)}`).then(r => r.json())
+      const params = new URLSearchParams({ q, branchname: branchname || '' })
+      const res = await fetch(`${API}/api/receipts/priority-accounts?${params}`).then(r => r.json())
       if (res.ok) setAccSuggestions(res.accounts || [])
     } catch { /* silent */ } finally {
       setAccSearching(false)
@@ -1115,7 +1117,7 @@ export default function ReceiptsPage() {
                   setModalAccdes('')
                   setOpenInvoices([])
                   setSelectedInvoices(new Set())
-                  searchAccounts(v)
+                  searchAccounts(v, receiptModal?.BRANCHNAME)
                 }}
                 onBlur={e => {
                   const v = e.target.value.trim()
@@ -1123,7 +1125,7 @@ export default function ReceiptsPage() {
                   if (v.length >= 2) {
                     searchOpenInvoices(v, receiptModal)
                     if (!modalAccdes) {
-                      fetch(`${API}/api/receipts/priority-accounts?q=${encodeURIComponent(v)}`)
+                      fetch(`${API}/api/receipts/priority-accounts?q=${encodeURIComponent(v)}&branchname=${encodeURIComponent(receiptModal?.BRANCHNAME || '')}`)
                         .then(r => r.json())
                         .then(d => {
                           const exact = (d.accounts || []).find(a => a.accname === v || a.accname === `${v}-${receiptModal?.BRANCHNAME}`)
@@ -1256,9 +1258,8 @@ export default function ReceiptsPage() {
       {/* ── Invoice Receipt Modal ── */}
       {irModal && (
         <div className="receipts-modal-overlay" onClick={e => { if (e.target === e.currentTarget) { setIrModal(null); setCustSuggestions([]) } }}>
-          <div className="receipts-modal" dir="rtl" style={{ maxWidth: 600, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
-            <h3 style={{ color: '#7c3aed', flexShrink: 0 }}>חשבונית מס קבלה</h3>
-            <div style={{ flex: 1, overflowY: 'auto', paddingLeft: 4 }}>
+          <div className="receipts-modal" dir="rtl" style={{ maxWidth: 600, maxHeight: '90vh', overflowY: 'auto' }}>
+            <h3 style={{ color: '#7c3aed' }}>חשבונית מס קבלה</h3>
 
             <table className="receipts-modal-info">
               <tbody>
@@ -1303,7 +1304,7 @@ export default function ReceiptsPage() {
                 onChange={e => {
                   setIrAccname(e.target.value)
                   setIrAccdes('')
-                  searchAccounts(e.target.value)
+                  searchAccounts(e.target.value, irModal?.BRANCHNAME)
                 }}
                 onBlur={async e => {
                   const v = e.target.value.trim()
@@ -1311,7 +1312,7 @@ export default function ReceiptsPage() {
                   if (v.length >= 2) {
                     await loadLastEinvoice(v, irModal?.BRANCHNAME || '', irModal?.SUM1)
                     if (!irAccdes) {
-                      fetch(`${API}/api/receipts/priority-accounts?q=${encodeURIComponent(v)}`)
+                      fetch(`${API}/api/receipts/priority-accounts?q=${encodeURIComponent(v)}&branchname=${encodeURIComponent(irModal?.BRANCHNAME || '')}`)
                         .then(r => r.json())
                         .then(d => {
                           const exact = (d.accounts || []).find(a => a.accname === v || a.accname === `${v}-${irModal?.BRANCHNAME}`)
@@ -1443,9 +1444,8 @@ export default function ReceiptsPage() {
             )}
 
             {irError && <p className="receipts-error" style={{ margin: '8px 0' }}>{irError}</p>}
-            </div>{/* end scrollable content */}
 
-            <div className="receipts-modal-actions" style={{ flexShrink: 0, borderTop: '1px solid #e5e7eb', paddingTop: 14, marginTop: 8 }}>
+            <div className="receipts-modal-actions">
               <button className="receipts-btn receipts-btn-approve" onClick={submitInvoiceReceipt} disabled={irSending}>
                 {irSending ? 'שולח לפריוריטי...' : 'הפק חשבונית מס קבלה'}
               </button>
@@ -1533,12 +1533,12 @@ export default function ReceiptsPage() {
                 onChange={e => {
                   setJournalCounterpart(e.target.value)
                   setJournalCounterDesc('')
-                  searchJournalAccounts(e.target.value)
+                  searchJournalAccounts(e.target.value, journalModal?.BRANCHNAME)
                 }}
                 onBlur={async () => {
                   if (!journalCounterpart.trim() || journalCounterDesc) return
                   try {
-                    const res = await fetch(`${API}/api/receipts/priority-accounts?q=${encodeURIComponent(journalCounterpart.trim())}`).then(r => r.json())
+                    const res = await fetch(`${API}/api/receipts/priority-accounts?q=${encodeURIComponent(journalCounterpart.trim())}&branchname=${encodeURIComponent(journalModal?.BRANCHNAME || '')}`).then(r => r.json())
                     const accs = res.accounts || []
                     const exact = accs.find(a =>
                       a.accname === journalCounterpart.trim() ||
