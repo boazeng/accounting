@@ -4737,7 +4737,7 @@ def bank_line_create_receipt():
         details    = str(data.get("details",    "")).strip()
         doc_type   = str(data.get("doc_type",   "receipt")).strip()  # 'receipt' | 'invoice_receipt'
 
-        source_ivnum = str(data.get("source_ivnum", "")).strip()
+        open_invoices = data.get("open_invoices", [])  # list of {IVNUM, DIFF, TOTPRICE, ...}
 
         if not txn_id or not accname or amount <= 0:
             return jsonify({"ok": False, "error": "חסרים שדות חובה (txn_id, accname, amount)"}), 400
@@ -4756,17 +4756,28 @@ def bank_line_create_receipt():
             "PAYDATE":     ivdate,
             "BRANCHNAME":  branchname,
             "DETAILS":     details,
-            "CASHPAYMENT": 0,   # bank transfer — no cash
+            "CASHPAYMENT": 0,
         }
-        if source_ivnum:
-            payload["REFERENCE"] = source_ivnum
         logger.info(f"bank_line_create_receipt payload: {payload}")
 
         resp = http_requests.post(
             f"{_prio_url()}/TINVOICES", json=payload,
             headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=20,
         )
-        resp.raise_for_status()
+        if not resp.ok:
+            try:
+                err_body = resp.json()
+            except Exception:
+                err_body = resp.text
+            logger.error(f"TINVOICES create failed {resp.status_code}: {err_body}")
+            def _extract_msg(b):
+                if isinstance(b, dict):
+                    m = b.get("error", {}).get("message", "")
+                    if isinstance(m, dict):
+                        return m.get("value", str(b))
+                    return m or str(b)
+                return str(b)
+            return jsonify({"ok": False, "error": _extract_msg(err_body), "detail": err_body}), 400
         resp_data      = resp.json()
         priority_ivnum = resp_data.get("IVNUM", "")
         ivtype         = resp_data.get("IVTYPE", "T")
@@ -4790,6 +4801,41 @@ def bank_line_create_receipt():
         except Exception as pay_err:
             logger.warning(f"TPAYMENT2_SUBFORM failed (non-fatal): {pay_err}")
 
+        # Mark PAYFLAG='Y' on TFNCITEMS2_SUBFORM rows for the open invoices
+        if open_invoices:
+            inv_ivnums = {(inv.get("IVNUM") or "").strip() for inv in open_invoices if inv.get("IVNUM")}
+            try:
+                rows_resp = http_requests.get(
+                    f"{_prio_url()}/TINVOICES({key})/TFNCITEMS2_SUBFORM",
+                    headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=15,
+                )
+                if rows_resp.ok:
+                    for row in rows_resp.json().get("value", []):
+                        row_ivnum = (row.get("IVNUM") or "").strip()
+                        if row_ivnum not in inv_ivnums:
+                            continue
+                        fnctrans = row.get("FNCTRANS")
+                        kline    = row.get("KLINE")
+                        if fnctrans is None:
+                            continue
+                        row_key = f"FNCTRANS={fnctrans},KLINE={kline}"
+                        try:
+                            patch_resp = http_requests.patch(
+                                f"{_prio_url()}/TINVOICES({key})/TFNCITEMS2_SUBFORM({row_key})",
+                                json={"PAYFLAG": "Y"},
+                                headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=15,
+                            )
+                            if patch_resp.ok:
+                                logger.info(f"TFNCITEMS2 PAYFLAG=Y set for {row_ivnum}")
+                            else:
+                                logger.warning(f"TFNCITEMS2 PATCH {row_ivnum} failed {patch_resp.status_code}: {patch_resp.text[:300]}")
+                        except Exception as pe:
+                            logger.warning(f"TFNCITEMS2 PATCH {row_ivnum} error: {pe}")
+                else:
+                    logger.warning(f"TFNCITEMS2_SUBFORM GET failed {rows_resp.status_code}")
+            except Exception as e:
+                logger.warning(f"TFNCITEMS2_SUBFORM error (non-fatal): {e}")
+
         # Store in receipts_db as approved (skip pending step)
         rec = receipts_db.add_receipt(
             fncnum=txn_id,
@@ -4800,7 +4846,6 @@ def bank_line_create_receipt():
             ivdate=ivdate,
             branchname=branchname,
             details=details,
-            source_ivnum=source_ivnum,
             doc_type=doc_type,
         )
         if rec:
@@ -4922,7 +4967,7 @@ def last_einvoice():
 
 @app.route("/api/receipts/bank-line/create-invoice-receipt", methods=["POST"])
 def bank_line_create_invoice_receipt():
-    """Create an EINVOICES (חשבונית קבלה) document in Priority, then add line items."""
+    """Create an EINVOICES (חשבונית מס קבלה) document in Priority, then add line items."""
     try:
         data       = request.get_json(force=True) or {}
         txn_id     = str(data.get("txn_id",     "")).strip()
@@ -4943,13 +4988,17 @@ def bank_line_create_invoice_receipt():
         else:
             full_accname = accname
 
+        # EINVOICES uses bare customer code without branch suffix (e.g. "50778" not "50778-103")
+        custname = accname.split("-")[0]
+
         # 1. Create EINVOICES header — total is derived from line items, not set directly
         header_payload = {
-            "CUSTNAME":   accname,
-            "IVDATE":     ivdate,
-            "DETAILS":    details,
-            "BRANCHNAME": branchname,
+            "CUSTNAME": custname,
+            "IVDATE":   ivdate,
+            "DETAILS":  details,
         }
+        if branchname and branchname != "000":
+            header_payload["BRANCHNAME"] = branchname
         logger.info(f"create_invoice_receipt header: {header_payload}")
         resp = http_requests.post(
             f"{_prio_url()}/EINVOICES", json=header_payload,
@@ -4978,14 +5027,12 @@ def bank_line_create_invoice_receipt():
         key            = f"IVNUM='{priority_ivnum}',IVTYPE='{ivtype}',DEBIT='{debit}'"
 
         # 2. POST each line item to EINVOICEITEMS_SUBFORM
-        # Frontend sends VAT-inclusive prices; divide by 1.17 to get pre-VAT price for Priority
-        VAT_RATE = 0.17
-        invoice_total = 0.0
+        # Frontend sends VAT-inclusive prices; Priority's PRICE field is pre-VAT, so divide by 1.18
+        VAT_RATE = 0.18
         for item in items:
-            inclusive = float(item.get("PRICE", 0))
-            tquant    = float(item.get("TQUANT", 1))
+            inclusive = round(float(item.get("PRICE", 0)), 2)
             pre_vat   = round(inclusive / (1 + VAT_RATE), 2)
-            invoice_total += inclusive * tquant
+            tquant    = float(item.get("TQUANT", 1))
             item_payload = {
                 "PARTNAME": str(item.get("PARTNAME", "000")),
                 "PDES":     str(item.get("PDES", "")),
@@ -5000,8 +5047,52 @@ def bank_line_create_invoice_receipt():
             except Exception as item_err:
                 logger.warning(f"EINVOICEITEMS_SUBFORM item failed (non-fatal): {item_err}")
 
-        # Use actual invoice total (from items) for payment — not the bank transaction amount
-        pay_amount = round(invoice_total, 2) if invoice_total > 0 else amount
+        # Check actual TOTPRICE Priority calculated and add a "הפרש" line for small rounding differences.
+        # Guard: only fires when TOTPRICE > 0 (items were accepted) and diff is tiny (≤ 5 ₪).
+        # If TOTPRICE comes back null/0 (items not yet computed or failed), skip — don't add a
+        # massive correction that would blow up the payment subform.
+        import time as _time_ir; _time_ir.sleep(1.0)
+        try:
+            chk = http_requests.get(
+                f"{_prio_url()}/EINVOICES({key})?$select=TOTPRICE",
+                headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=15, verify=False,
+            )
+            if chk.ok:
+                actual_total = float(chk.json().get("TOTPRICE") or 0)
+                logger.info(f"EINVOICES {priority_ivnum}: TOTPRICE={actual_total}, bank_amount={amount}")
+                diff = round(amount - actual_total, 2)
+                max_correction = min(5.0, round(amount * 0.01, 2))  # at most 1% or 5 ₪
+                if actual_total > 0 and 0.005 <= abs(diff) <= max_correction:
+                    corr_pre_vat = round(diff / (1 + VAT_RATE), 2)
+                    logger.info(f"EINVOICES {priority_ivnum}: adding הפרש line diff={diff}, pre_vat={corr_pre_vat}")
+                    http_requests.post(
+                        f"{_prio_url()}/EINVOICES({key})/EINVOICEITEMS_SUBFORM",
+                        json={"PARTNAME": "DIFF", "PDES": "הפרש", "TQUANT": 1.0, "PRICE": corr_pre_vat},
+                        headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=15, verify=False,
+                    )
+                elif actual_total <= 0:
+                    logger.warning(f"EINVOICES {priority_ivnum}: TOTPRICE=0/null — skipping הפרש (items may not have saved)")
+                elif abs(diff) > max_correction:
+                    logger.warning(f"EINVOICES {priority_ivnum}: diff={diff} exceeds threshold — skipping הפרש")
+        except Exception as _diff_err:
+            logger.warning(f"הפרש check failed (non-fatal): {_diff_err}")
+
+        # Payment amount: re-query TOTPRICE so QPRICE exactly matches what Priority computed.
+        # Use bank_amount as fallback if re-query fails.
+        pay_amount = round(amount, 2)
+        try:
+            import time as _time_pay; _time_pay.sleep(0.5)
+            _chk2 = http_requests.get(
+                f"{_prio_url()}/EINVOICES({key})?$select=TOTPRICE",
+                headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=15, verify=False,
+            )
+            if _chk2.ok:
+                _tp2 = float(_chk2.json().get("TOTPRICE") or 0)
+                if _tp2 > 0:
+                    pay_amount = round(_tp2, 2)
+                    logger.info(f"EINVOICES {priority_ivnum}: final TOTPRICE={_tp2}, QPRICE set to {pay_amount}")
+        except Exception as _pay_err:
+            logger.warning(f"TOTPRICE re-query failed (non-fatal): {_pay_err}")
 
         # 3. POST payment to EPAYMENT2_SUBFORM — payment type 3 = bank transfer
         epay_payload = {
@@ -5012,6 +5103,7 @@ def bank_line_create_invoice_receipt():
             "CASHNAME":    cashname,
             "DETAILS":     details,
         }
+        logger.info(f"EINVOICES {priority_ivnum}: EPAYMENT2_SUBFORM QPRICE={pay_amount}")
         epay_resp = http_requests.post(
             f"{_prio_url()}/EINVOICES({key})/EPAYMENT2_SUBFORM",
             json=epay_payload, headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=15,
@@ -5037,7 +5129,7 @@ def bank_line_create_invoice_receipt():
             doc_type='invoice_receipt',
         )
         if rec:
-            receipts_db.close_receipt_direct(rec["id"], priority_ivnum)
+            receipts_db.approve_receipt(rec["id"], priority_ivnum)
 
         # 4. Mark bank line processed
         processed = _load_processed_txns()
@@ -5128,6 +5220,33 @@ def _detect_bank_gl(cashname, branchname, bank_name_hint=""):
     except Exception as _e:
         logger.warning(f"_detect_bank_gl failed: {_e}")
         return "", ""
+
+
+def _launch_bank_recon(journal_fncnum, cashname, bank_fncnum="", label=""):
+    """Launch bank_recon.js in a background thread (non-blocking, non-fatal)."""
+    if not cashname:
+        return
+    try:
+        import threading, subprocess, shutil
+        script_dir = os.path.join(os.path.dirname(__file__), "close_receipt")
+        node_exe   = shutil.which("node") or r"C:\Program Files\nodejs\node.exe"
+        args = [node_exe, "bank_recon.js",
+                journal_fncnum or "", cashname, bank_fncnum or ""]
+        tag = label or f"recon({journal_fncnum},{bank_fncnum})"
+        def _run():
+            try:
+                r = subprocess.run(args, cwd=script_dir, timeout=120,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                out = r.stdout.decode("utf-8", errors="replace").strip()
+                err = r.stderr.decode("utf-8", errors="replace").strip()
+                logger.info(f"bank_recon [{tag}] stdout: {out}")
+                if err:
+                    logger.info(f"bank_recon [{tag}] stderr: {err}")
+            except Exception as ex:
+                logger.warning(f"bank_recon [{tag}] error: {ex}")
+        threading.Thread(target=_run, daemon=True).start()
+    except Exception as ex:
+        logger.warning(f"bank_recon launch failed [{label}]: {ex}")
 
 
 @app.route("/api/receipts/bank-line/create-journal", methods=["POST"])
@@ -5224,6 +5343,7 @@ def bank_line_create_journal():
                 branchname=branchname,
                 action="journal",
                 priority_fncnum=fncnum,
+                cashname=cashname,
             )
             if item:
                 action_queue_db.mark_done(item["id"])
@@ -5234,23 +5354,7 @@ def bank_line_create_journal():
         _save_processed_txns(processed)
 
         # Async: run bank reconciliation (BANKRECONSP) in background — non-blocking
-        if fncnum and cashname:
-            try:
-                import threading, subprocess, shutil
-                script_dir = os.path.join(os.path.dirname(__file__), "close_receipt")
-                node_exe = shutil.which("node") or r"C:\Program Files\nodejs\node.exe"
-                def _run_recon():
-                    try:
-                        subprocess.run(
-                            [node_exe, "bank_recon.js", fncnum, cashname],
-                            cwd=script_dir, timeout=120,
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                        )
-                    except Exception as ex:
-                        logger.warning(f"bank_recon background: {ex}")
-                threading.Thread(target=_run_recon, daemon=True).start()
-            except Exception as ex:
-                logger.warning(f"bank_recon launch failed (non-fatal): {ex}")
+        _launch_bank_recon(fncnum, cashname, txn_id, label="journal")
 
         return jsonify({"ok": True, "fncnum": fncnum})
 
@@ -5280,6 +5384,38 @@ def journal_finalize(priority_fncnum):
             if action_queue_db:
                 action_queue_db.mark_final_by_priority_fncnum(priority_fncnum, manual_fncnum)
             return jsonify({"ok": True, "fncnum": manual_fncnum, "draft_fncnum": priority_fncnum})
+
+        # Helper: search FNCTRANS by DETAILS+CURDATE+FINAL='Y' — works even after draft is deleted
+        queue_item_early = action_queue_db.get_by_priority_fncnum(priority_fncnum) if action_queue_db else None
+
+        def _search_final_by_details():
+            if not queue_item_early:
+                return None
+            details_esc = (queue_item_early.get("details") or "").replace("'", "''")
+            curdate_q   = (queue_item_early.get("curdate") or "")[:10]
+            try:
+                sr = http_requests.get(
+                    f"{_prio_url()}/FNCTRANS?$filter=DETAILS eq '{details_esc}' and FINAL eq 'Y'"
+                    f"&$select=FNCNUM,CURDATE&$orderby=FNCTRANS desc&$top=10",
+                    headers={"Accept": "application/json", "OData-Version": "4.0"},
+                    auth=_prio_auth(), timeout=15, verify=False,
+                )
+                if sr.ok:
+                    for entry in sr.json().get("value", []):
+                        if not curdate_q or (entry.get("CURDATE") or "")[:10] == curdate_q:
+                            fn = entry.get("FNCNUM", "")
+                            if fn and not fn.startswith("T"):
+                                return fn
+            except Exception as _e:
+                logger.warning(f"FNCTRANS details search failed: {_e}")
+            return None
+
+        # Fast-path: check if already finalized in Priority (draft T-record may be gone)
+        found_final = _search_final_by_details()
+        if found_final:
+            if action_queue_db:
+                action_queue_db.mark_final_by_priority_fncnum(priority_fncnum, found_final)
+            return jsonify({"ok": True, "fncnum": found_final, "draft_fncnum": priority_fncnum, "already_registered": True})
 
         # Check current state in Priority via direct key lookup (FNCTRANS $filter doesn't work)
         check_resp = http_requests.get(
@@ -5341,8 +5477,42 @@ def journal_finalize(priority_fncnum):
             return jsonify({"ok": False, "error": err, "needs_manual": True}), 500
 
         final_fncnum = sdk_data.get("final_fncnum") or priority_fncnum
+
+        # If close_journal.js didn't resolve the final number (still T-prefix),
+        # search by DETAILS+CURDATE (draft record is deleted after finalization).
+        if final_fncnum.startswith("T"):
+            import time as _time; _time.sleep(1)
+            found = _search_final_by_details()
+            if found:
+                final_fncnum = found
+            elif internal_key:
+                # Fallback: try by internal numeric key
+                try:
+                    seq_resp = http_requests.get(
+                        f"{_prio_url()}/FNCTRANS?$filter=FNCTRANS eq {internal_key} and FINAL eq 'Y'"
+                        "&$select=FNCNUM,FINAL&$orderby=FNCNUM desc&$top=5",
+                        headers={"Accept": "application/json", "OData-Version": "4.0"},
+                        auth=_prio_auth(), timeout=15, verify=False,
+                    )
+                    if seq_resp.ok:
+                        for entry in seq_resp.json().get("value", []):
+                            fn = entry.get("FNCNUM", "")
+                            if fn and not fn.startswith("T"):
+                                final_fncnum = fn
+                                break
+                except Exception as _e:
+                    logger.warning(f"post-close FNCTRANS lookup failed: {_e}")
+
+        # Get cashname BEFORE mark_final (which may update priority_fncnum in the record)
+        queue_item = action_queue_db.get_by_priority_fncnum(priority_fncnum) if action_queue_db else None
+        recon_cashname = (queue_item or {}).get("cashname", "")
+
         if action_queue_db:
             action_queue_db.mark_final_by_priority_fncnum(priority_fncnum, final_fncnum)
+        if recon_cashname:
+            recon_bank_fncnum = (queue_item or {}).get("fncnum", "")
+            _launch_bank_recon(final_fncnum, recon_cashname, recon_bank_fncnum, label="journal-final")
+
         return jsonify({"ok": True, "fncnum": final_fncnum, "draft_fncnum": priority_fncnum})
 
     except subprocess.TimeoutExpired:
@@ -5432,6 +5602,7 @@ def bank_line_record_action():
         branchname = str(data.get("branchname", "")).strip()
         bank_desc  = str(data.get("bank_desc",  "")).strip()
         curdate    = str(data.get("curdate",    "")).strip()
+        cashname   = str(data.get("cashname",   "")).strip()
 
         if not txn_id:
             return jsonify({"ok": False, "error": "Missing txn_id"}), 400
@@ -5449,6 +5620,7 @@ def bank_line_record_action():
                 direction=direction,
                 branchname=branchname,
                 action=action,
+                cashname=cashname,
             )
             if item:
                 action_queue_db.mark_done(item["id"])
@@ -5457,6 +5629,9 @@ def bank_line_record_action():
         processed = _load_processed_txns()
         processed.add(txn_id)
         _save_processed_txns(processed)
+
+        # Mark bank line in BANKRECONSP (no journal fncnum for manual-record actions)
+        _launch_bank_recon("", cashname, txn_id, label=action)
 
         return jsonify({"ok": True})
     except Exception as e:
@@ -5622,12 +5797,6 @@ def receipts_open_invoices():
         base_accname = accname.split("-")[0] if "-" in accname else accname
 
         flt = f"CUSTNAME eq '{base_accname}' and STATDES ne 'מבוטלת'"
-        if amount_str:
-            try:
-                amount = float(amount_str)
-                flt += f" and TOTPRICE eq {amount}"
-            except ValueError:
-                pass
 
         # Try with branch filter first; fall back without if no results
         filters_to_try = []
@@ -5640,12 +5809,14 @@ def receipts_open_invoices():
         for f_try in filters_to_try:
             r = http_requests.get(
                 f"{_prio_url()}/CINVOICES?$filter={f_try}"
-                "&$select=IVNUM,CUSTNAME,CDES,IVDATE,TOTPRICE,DIFF,STATDES,BRANCHNAME"
-                "&$orderby=IVDATE desc&$top=10",
+                "&$select=IVNUM,CUSTNAME,CDES,IVDATE,TOTPRICE,STATDES,BRANCHNAME,IVRECONDATE"
+                "&$orderby=IVDATE desc&$top=50",
                 headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=20,
             )
             r.raise_for_status()
-            invoices = r.json().get("value", [])
+            all_inv = r.json().get("value", [])
+            # Filter in Python: only invoices with no reconciliation date (unpaid)
+            invoices = [inv for inv in all_inv if not inv.get("IVRECONDATE")]
             if invoices:
                 break
 
@@ -6047,16 +6218,206 @@ def receipts_close(receipt_id):
             return jsonify({"ok": False, "error": err}), 500
 
         # Mark receipt as closed in local DB — store RC number and journal entry
-        fncnum   = data.get("fncnum")   or None
-        rc_ivnum = data.get("rc_ivnum") or None
+        fncnum           = data.get("fncnum")   or None
+        rc_ivnum         = data.get("rc_ivnum") or None
+
+        # Python fallback: Node's fetch() often fails (SSL).
+        # After CLOSETIV the T-draft is deleted — search for the new RC record by ACCNAME+TOTPRICE.
+        if not rc_ivnum:
+            import time as _time
+            _time.sleep(2)
+            accname_key = rec.get("accname", "")
+            totprice    = rec.get("totprice", 0)
+            ivdate_key  = (rec.get("ivdate") or "")[:10]
+            if accname_key and totprice:
+                try:
+                    rr = http_requests.get(
+                        f"{_prio_url()}/TINVOICES?$filter=ACCNAME eq '{accname_key}'"
+                        f" and TOTPRICE eq {totprice} and FINAL eq 'Y'"
+                        "&$select=IVNUM,FNCNUM,IVDATE&$orderby=IV desc&$top=5",
+                        headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=15, verify=False,
+                    )
+                    if rr.ok:
+                        items = rr.json().get("value", [])
+                        best = None
+                        for item in items:
+                            if not ivdate_key or (item.get("IVDATE") or "")[:10] == ivdate_key:
+                                best = item
+                                break
+                        if not best and items:
+                            best = items[0]
+                        if best:
+                            rc_ivnum = best.get("IVNUM")
+                            fncnum   = fncnum or (best.get("FNCNUM") or None)
+                except Exception as _e:
+                    logger.warning(f"post-close RC lookup failed: {_e}")
+
+        bank_fncnum_orig = rec.get("bank_fncnum") or rec.get("fncnum") or ""
+        cashname         = rec.get("cashname", "")
         receipts_db._save_receipt({
             **rec,
-            "status":    "closed",
-            "closed_at": _now_il().isoformat(),
-            "fncnum":    fncnum,
-            "rc_ivnum":  rc_ivnum,
+            "status":      "closed",
+            "closed_at":   _now_il().isoformat(),
+            "fncnum":      fncnum,
+            "rc_ivnum":    rc_ivnum,
+            "bank_fncnum": bank_fncnum_orig,
         })
+        _launch_bank_recon(fncnum or "", cashname, bank_fncnum_orig, label="receipt-close")
         return jsonify({"ok": True, "ivnum": priority_ivnum, "fncnum": fncnum, "rc_ivnum": rc_ivnum})
+
+    except subprocess.TimeoutExpired:
+        return jsonify({"ok": False, "error": "Timeout — בדוק בפריוריטי ידנית"}), 504
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/<receipt_id>/refresh-final", methods=["POST"])
+def receipts_refresh_final(receipt_id):
+    """Re-fetch final invoice/receipt number and journal FNCNUM from Priority.
+    TINVOICES (receipt): search by ACCNAME+TOTPRICE+FINAL='Y'.
+    EINVOICES (invoice_receipt): search by CUSTNAME+TOTPRICE+FINAL='Y'.
+    """
+    try:
+        rec = receipts_db.get_receipt(receipt_id)
+        if not rec:
+            return jsonify({"ok": False, "error": "קבלה לא נמצאה"}), 404
+
+        fncnum     = rec.get("fncnum")      or None
+        totprice   = rec.get("totprice", 0)
+        ivdate_key = (rec.get("ivdate") or "")[:10]
+        doc_type   = rec.get("doc_type", "receipt")
+
+        if not totprice:
+            return jsonify({"ok": False, "error": "חסר totprice"}), 400
+
+        if doc_type == "invoice_receipt":
+            # EINVOICES: filter by CUSTNAME (base code without branch)
+            custname_key = rec.get("accname", "").split("-")[0]
+            rr = http_requests.get(
+                f"{_prio_url()}/EINVOICES?$filter=CUSTNAME eq '{custname_key}'"
+                f" and TOTPRICE eq {totprice} and FINAL eq 'Y'"
+                "&$select=IVNUM,FNCNUM,IVDATE&$orderby=IV desc&$top=10",
+                headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=15, verify=False,
+            )
+            if not rr.ok:
+                return jsonify({"ok": False, "error": f"Priority {rr.status_code}: {rr.text[:200]}"}), 500
+            items = rr.json().get("value", [])
+            best = next((x for x in items if not ivdate_key or (x.get("IVDATE") or "")[:10] == ivdate_key), None)
+            if not best and items:
+                best = items[0]
+            final_ivnum = best.get("IVNUM") if best else None
+            fncnum      = (best.get("FNCNUM") or fncnum) if best else fncnum
+            receipts_db._save_receipt({**rec, "fncnum": fncnum, "final_ivnum": final_ivnum})
+            return jsonify({"ok": True, "fncnum": fncnum, "final_ivnum": final_ivnum})
+
+        else:
+            # TINVOICES (receipt): filter by ACCNAME+branch
+            accname_key = rec.get("accname", "")
+            rr = http_requests.get(
+                f"{_prio_url()}/TINVOICES?$filter=ACCNAME eq '{accname_key}'"
+                f" and TOTPRICE eq {totprice} and FINAL eq 'Y'"
+                "&$select=IVNUM,FNCNUM,IVDATE&$orderby=IV desc&$top=10",
+                headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=15, verify=False,
+            )
+            if not rr.ok:
+                return jsonify({"ok": False, "error": f"Priority {rr.status_code}: {rr.text[:200]}"}), 500
+            items = rr.json().get("value", [])
+            best = next((x for x in items if not ivdate_key or (x.get("IVDATE") or "")[:10] == ivdate_key), None)
+            if not best and items:
+                best = items[0]
+            rc_ivnum = best.get("IVNUM") if best else None
+            fncnum   = (best.get("FNCNUM") or fncnum) if best else fncnum
+            receipts_db._save_receipt({**rec, "fncnum": fncnum, "rc_ivnum": rc_ivnum})
+            return jsonify({"ok": True, "fncnum": fncnum, "rc_ivnum": rc_ivnum})
+
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/receipts/<receipt_id>/close-einvoice", methods=["POST"])
+def receipts_close_einvoice(receipt_id):
+    """Finalize a Priority draft EINVOICES (חשבונית מס קבלה) via REST PATCH."""
+    import subprocess, shutil
+    try:
+        rec = receipts_db.get_receipt(receipt_id)
+        if not rec:
+            return jsonify({"ok": False, "error": "קבלה לא נמצאה"}), 404
+
+        priority_ivnum = rec.get("priority_ivnum")
+        if not priority_ivnum:
+            return jsonify({"ok": False, "error": "החשבונית עוד לא נשלחה לפריוריטי"}), 400
+
+        script_dir = os.path.join(os.path.dirname(__file__), "close_receipt")
+        node_exe = shutil.which("node") or r"C:\Program Files\nodejs\node.exe"
+
+        result = subprocess.run(
+            [node_exe, "close_einvoice.js", priority_ivnum],
+            cwd=script_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=60,
+        )
+
+        stdout = (result.stdout or b"").decode("utf-8", errors="replace").strip()
+        stderr = (result.stderr or b"").decode("utf-8", errors="replace").strip()
+        if stderr:
+            app.logger.info("close_einvoice stderr: %s", stderr)
+
+        try:
+            data = json.loads(stdout) if stdout else {}
+        except Exception:
+            data = {}
+
+        if result.returncode != 0 or not data.get("ok"):
+            err = data.get("error") or stderr or "שגיאה לא ידועה"
+            return jsonify({"ok": False, "error": err}), 500
+
+        final_ivnum      = data.get("final_ivnum") or None
+        fncnum           = data.get("fncnum")      or None
+
+        # Python fallback: Node's fetch() often fails (SSL).
+        # After CLOSEANINVOICE the draft is deleted — search EINVOICES by CUSTNAME+TOTPRICE+FINAL='Y'.
+        if not final_ivnum or not fncnum:
+            import time as _time_ei
+            _time_ei.sleep(2)
+            custname_key = rec.get("accname", "").split("-")[0]  # EINVOICES uses CUSTNAME (no branch)
+            totprice_ei  = rec.get("totprice", 0)
+            ivdate_ei    = (rec.get("ivdate") or "")[:10]
+            if custname_key and totprice_ei:
+                try:
+                    ei_resp = http_requests.get(
+                        f"{_prio_url()}/EINVOICES?$filter=CUSTNAME eq '{custname_key}'"
+                        f" and TOTPRICE eq {totprice_ei} and FINAL eq 'Y'"
+                        "&$select=IVNUM,FNCNUM,IVDATE&$orderby=IV desc&$top=5",
+                        headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=15, verify=False,
+                    )
+                    if ei_resp.ok:
+                        ei_items = ei_resp.json().get("value", [])
+                        best = None
+                        for item in ei_items:
+                            if not ivdate_ei or (item.get("IVDATE") or "")[:10] == ivdate_ei:
+                                best = item
+                                break
+                        if not best and ei_items:
+                            best = ei_items[0]
+                        if best:
+                            final_ivnum = final_ivnum or best.get("IVNUM")
+                            fncnum      = fncnum or (best.get("FNCNUM") or None)
+                except Exception as _e:
+                    logger.warning(f"post-close EINVOICES lookup failed: {_e}")
+
+        bank_fncnum_orig = rec.get("bank_fncnum") or rec.get("fncnum") or ""
+        cashname         = rec.get("cashname", "")
+        receipts_db._save_receipt({
+            **rec,
+            "status":      "closed",
+            "closed_at":   _now_il().isoformat(),
+            "final_ivnum": final_ivnum,
+            "fncnum":      fncnum,
+            "bank_fncnum": bank_fncnum_orig,
+        })
+        _launch_bank_recon(fncnum or "", cashname, bank_fncnum_orig, label="einvoice-close")
+        return jsonify({"ok": True, "ivnum": priority_ivnum, "final_ivnum": final_ivnum, "fncnum": fncnum})
 
     except subprocess.TimeoutExpired:
         return jsonify({"ok": False, "error": "Timeout — בדוק בפריוריטי ידנית"}), 504

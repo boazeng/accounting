@@ -30,7 +30,7 @@ def get_fncnums():
 
 
 def add_item(fncnum, curdate, details, accname1, accdes1, accname2, accdes2,
-             sum1, direction, branchname, action, priority_fncnum=""):
+             sum1, direction, branchname, action, priority_fncnum="", cashname=""):
     records = _load()
     if any(r.get("fncnum") == fncnum and r.get("status") == "pending" for r in records):
         return None  # already queued
@@ -48,6 +48,7 @@ def add_item(fncnum, curdate, details, accname1, accdes1, accname2, accdes2,
         "branchname": branchname,
         "action": action,
         "priority_fncnum": priority_fncnum,
+        "cashname": cashname,
         "status": "pending",
         "created_at": datetime.now().isoformat(),
     }
@@ -84,6 +85,14 @@ def remove_item(item_id):
         return None
     _save(new_records)
     return item_id
+
+
+def get_by_priority_fncnum(priority_fncnum):
+    """Return the action_queue item with this priority_fncnum (or None)."""
+    for r in _load():
+        if r.get("priority_fncnum") == priority_fncnum:
+            return r
+    return None
 
 
 def mark_final_by_priority_fncnum(priority_fncnum, final_fncnum=None):

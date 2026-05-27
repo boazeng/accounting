@@ -1,27 +1,25 @@
-# -*- coding: utf-8 -*-
-import sys, os, requests, urllib3
-from requests.auth import HTTPBasicAuth
+import os, requests, json, warnings
+warnings.filterwarnings('ignore')
 from dotenv import load_dotenv
-from pathlib import Path
-urllib3.disable_warnings()
-load_dotenv(Path(__file__).parent.parent / ".env")
-URL  = os.getenv("PRIORITY_URL_REAL", "").rstrip("/")
-AUTH = HTTPBasicAuth(os.getenv("PRIORITY_USERNAME",""), os.getenv("PRIORITY_PASSWORD",""))
-HDR  = {"Accept": "application/json", "OData-Version": "4.0"}
+load_dotenv(os.path.join(os.path.dirname(__file__), '../.env'))
 
-print(f"URL: {URL}\n")
+url  = (os.getenv('PRIORITY_URL_REAL') or os.getenv('PRIORITY_URL', '')).rstrip('/')
+user = os.getenv('PRIORITY_USERNAME', '')
+pw   = os.getenv('PRIORITY_PASSWORD', '')
 
-# 1. Recent FNCTRANS entries
-r = requests.get(f"{URL}/FNCTRANS?$select=FNCNUM,FINAL,FNCDATE,CHECKING&$orderby=FNCDATE desc&$top=5",
-                 headers=HDR, auth=AUTH, timeout=15, verify=False)
-print(f"Recent FNCTRANS: {r.status_code}")
-if r.ok:
-    for x in r.json().get("value", []):
-        print(f"  FNCNUM={x.get('FNCNUM')!r:20} FINAL={x.get('FINAL')!r} CHECKING={x.get('CHECKING')!r} DATE={str(x.get('FNCDATE',''))[:10]}")
+def get(path):
+    r = requests.get(url + path, auth=(user, pw),
+                     headers={'Accept': 'application/json', 'OData-Version': '4.0'}, verify=False, timeout=15)
+    return r.status_code, r.json() if r.ok else r.text
 
-# 2. Direct key lookup for T127759
-print()
-for fncnum in ["T127759", "T127763", "T127769"]:
-    r2 = requests.get(f"{URL}/FNCTRANS('{fncnum}')?$select=FNCNUM,FINAL,CHECKING",
-                      headers=HDR, auth=AUTH, timeout=15, verify=False)
-    print(f"{fncnum}: {r2.status_code} -> {r2.text[:150]}")
+for fncnum in ['T127857', 'T127867']:
+    print(f"\n=== FNCTRANS('{fncnum}') ===")
+    st, d = get(f"/FNCTRANS('{fncnum}')?$select=FNCTRANS,FNCNUM,FINAL,FNCPATNAME,IVDATE,DEBIT1,SUM1")
+    print("Status:", st)
+    print(json.dumps(d, indent=2, ensure_ascii=False))
+
+print("\n=== Last 5 FINAL FNCTRANS ===")
+st, d = get("/FNCTRANS?$filter=FINAL eq 'Y'&$select=FNCTRANS,FNCNUM,FINAL,FNCPATNAME,IVDATE,SUM1&$orderby=FNCTRANS desc&$top=5")
+print("Status:", st)
+items = d.get('value', d) if isinstance(d, dict) else d
+print(json.dumps(items[:2], indent=2, ensure_ascii=False))

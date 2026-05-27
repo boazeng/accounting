@@ -49,12 +49,12 @@ export default function AccountingPage() {
 
         <section className="ariel-sections">
           <div className="ariel-sections-grid">
-            <Link to="/accounting/supplier-inbox" className="ariel-section-card">
+            <a href="https://bookkeeping.newavera.co.il/" target="_blank" rel="noopener noreferrer" className="ariel-section-card">
               <span className="ariel-section-icon">📬</span>
               <h3 className="ariel-section-title">רישום חשבוניות ספק</h3>
               <p className="ariel-section-desc">חשבוניות שהתקבלו במייל ממתינות לאישור ורישום בפריוריטי</p>
               <span className="ariel-section-action">פתיחה &larr;</span>
-            </Link>
+            </a>
 
             <Link to="/accounting/receipts" className="ariel-section-card">
               <span className="ariel-section-icon">🏦</span>

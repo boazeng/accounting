@@ -17,7 +17,7 @@ function fmtAmount(n) {
 
 const ACTION_STYLES = {
   receipt:         { label: 'הפקת קבלה',          color: '#16a34a', bg: '#f0fdf4' },
-  invoice_receipt: { label: 'חשבונית קבלה',        color: '#7c3aed', bg: '#f5f3ff' },
+  invoice_receipt: { label: 'חשבונית מס קבלה',        color: '#7c3aed', bg: '#f5f3ff' },
   journal:         { label: 'פקודת התאמה',         color: '#b45309', bg: '#fff7ed' },
   transfer:        { label: 'העברה בנקאית',        color: '#1d4ed8', bg: '#eff6ff' },
 }
@@ -40,8 +40,10 @@ export default function ReceiptsPage() {
   const [loading, setLoading]     = useState(true)
   const [error, setError]         = useState('')
 
-  const [closing, setClosing]     = useState(null)
-  const [deleting, setDeleting]   = useState(null)
+  const [closing, setClosing]             = useState(null)
+  const [closingEinvoice, setClosingEinvoice] = useState(null)
+  const [deleting, setDeleting]           = useState(null)
+  const [refreshingFinal, setRefreshingFinal] = useState(null)
   const [actioning, setActioning] = useState(null)
   const [rowActions, setRowActions] = useState({}) // fncnum → 'receipt'|'journal'|'transfer'
 
@@ -62,7 +64,7 @@ export default function ReceiptsPage() {
   const [custSearching, setCustSearching]     = useState(false)
   const [openInvoices, setOpenInvoices]       = useState([])
   const [invoiceSearching, setInvoiceSearching] = useState(false)
-  const [selectedInvoice, setSelectedInvoice]   = useState(null)
+  const [selectedInvoices, setSelectedInvoices] = useState(new Set())
   const [existingRc, setExistingRc]             = useState(null) // RC number if receipt already exists
   const [receiptDocType, setReceiptDocType]     = useState('receipt') // 'receipt' | 'invoice_receipt'
 
@@ -187,6 +189,46 @@ export default function ReceiptsPage() {
     }
   }
 
+  async function closeEinvoice(rec) {
+    if (!window.confirm(`לסגור את חשבונית מס הקבלה ${rec.priority_ivnum} בפריוריטי?\n(פעולה זו אינה הפיכה)`)) return
+    setClosingEinvoice(rec.id)
+    try {
+      const resp = await fetch(`${API}/api/receipts/${rec.id}/close-einvoice`, { method: 'POST' })
+      const data = await resp.json()
+      if (!data.ok) throw new Error(data.error || 'שגיאה')
+      await loadAll()
+      const finalNum = data.final_ivnum && data.final_ivnum !== rec.priority_ivnum
+        ? data.final_ivnum : (data.final_ivnum || rec.priority_ivnum)
+      const fncLine = data.fncnum ? `\nמספר תנועת יומן: ${data.fncnum}` : ''
+      alert(`חשבונית מס קבלה נסגרה בהצלחה\nמספר חשבונית סופי: ${finalNum}${fncLine}`)
+    } catch (e) {
+      alert('שגיאה בסגירת חשבונית מס קבלה: ' + e.message)
+    } finally {
+      setClosingEinvoice(null)
+    }
+  }
+
+  async function refreshFinalNumbers(rec) {
+    setRefreshingFinal(rec.id)
+    try {
+      const resp = await fetch(`${API}/api/receipts/${rec.id}/refresh-final`, { method: 'POST' })
+      const data = await resp.json()
+      if (!data.ok) throw new Error(data.error || 'שגיאה')
+      await loadAll()
+      const finalLine = data.final_ivnum
+        ? `\nמספר חשבונית סופי: ${data.final_ivnum}`
+        : data.rc_ivnum
+          ? `\nמספר קבלה סופי: ${data.rc_ivnum}`
+          : '\nלא נמצא מספר סופי'
+      const fncLine = data.fncnum ? `\nמספר תנועת יומן: ${data.fncnum}` : ''
+      alert(`עודכן${finalLine}${fncLine}`)
+    } catch (e) {
+      alert('שגיאה: ' + e.message)
+    } finally {
+      setRefreshingFinal(null)
+    }
+  }
+
   async function deleteReceipt(rec) {
     const label = rec.priority_ivnum ? ` (${rec.priority_ivnum})` : ''
     if (!window.confirm(`למחוק את הרשומה של ${rec.accdes || rec.details || ''}${label}?\nאם נשלחה לפריוריטי יש למחוק שם ידנית.`)) return
@@ -225,13 +267,13 @@ export default function ReceiptsPage() {
     setReceiptDocType(docType)
     setModalAccname('')
     setModalAccdes('')
-    setModalDetails(docType === 'invoice_receipt' ? 'חשבונית קבלה' : 'קבלה')
+    setModalDetails(docType === 'invoice_receipt' ? 'חשבונית מס קבלה' : 'קבלה')
     setModalError('')
     setLastIvnum(null)
     setCustSuggestions([])
     setAccSuggestions([])
     setOpenInvoices([])
-    setSelectedInvoice(null)
+    setSelectedInvoices(new Set())
     setExistingRc(null)
     // Auto-search customers who have a CINVOICES invoice matching this amount + branch
     if (txn.SUM1) {
@@ -250,10 +292,6 @@ export default function ReceiptsPage() {
             if (s.existing_rc) {
               await importExistingReceipt(txn, s)
               return
-            } else if (s.ivnum) {
-              const inv = { IVNUM: s.ivnum, IVDATE: s.ivdate, TOTPRICE: s.totprice, STATDES: s.statdes }
-              setOpenInvoices([inv])
-              setSelectedInvoice(inv)
             } else {
               searchOpenInvoices(s.accname, txn)
             }
@@ -285,7 +323,7 @@ export default function ReceiptsPage() {
     } catch { /* non-fatal */ }
     setReceiptModal(null)
     setOpenInvoices([])
-    setSelectedInvoice(null)
+    setSelectedInvoices(new Set())
     setExistingRc(null)
     await loadAll()
   }
@@ -308,14 +346,15 @@ export default function ReceiptsPage() {
           cashname:    txn.CASHNAME,
           branchname:  txn.BRANCHNAME,
           details:     modalDetails,
-          source_ivnum: selectedInvoice?.IVNUM || '',
+          open_invoices: openInvoices.filter(inv => selectedInvoices.has(inv.IVNUM)),
           doc_type:    receiptDocType,
         }),
       })
       const data = await resp.json()
-      if (!data.ok) throw new Error(
-        (data.detail?.error?.message) || data.error || 'שגיאה'
-      )
+      if (!data.ok) {
+        const prioMsg = data.detail?.error?.message?.value || data.detail?.error?.message || ''
+        throw new Error(prioMsg || data.error || 'שגיאה')
+      }
       setLastIvnum(data.priority_ivnum)
       await loadAll()
       setReceiptModal(null)
@@ -341,6 +380,7 @@ export default function ReceiptsPage() {
           branchname: txn.BRANCHNAME,
           bank_desc:  txn.bank_desc,
           curdate:    txn.CURDATE,
+          cashname:   txn.CASHNAME,
         }),
       })
       const data = await resp.json()
@@ -413,11 +453,11 @@ export default function ReceiptsPage() {
       setIrDetails(res.details || '')
       const noteBase = `הועתק מ-${res.ivnum} (${fmt((res.ivdate || '').slice(0, 10))})`
       setIrPrevNote(res.same_month
-        ? `⚠ קיימת חשבונית קבלה לחודש הנוכחי (${res.ivnum}) — האם אכן להפיק שוב?`
+        ? `⚠ קיימת חשבונית מס קבלה לחודש הנוכחי (${res.ivnum}) — האם אכן להפיק שוב?`
         : noteBase
       )
       if (res.items?.length > 0) {
-        // Scale prices so total = bank transaction amount (current payment)
+        // Scale VAT-inclusive prices proportionally so total matches bank amount
         const target = bankAmount || 0
         const prevTotal = res.items.reduce((s, it) => s + (Number(it.PRICE) * Number(it.TQUANT) || 0), 0)
         setIrItems(res.items.map(it => {
@@ -682,7 +722,7 @@ export default function ReceiptsPage() {
                         <th>תיאור</th>
                         <th>סכום</th>
                         <th>פעולה</th>
-                        <th>מזהה בפריוריטי</th>
+                        <th>מספרים בפריוריטי</th>
                         <th>סניף</th>
                         <th></th>
                       </tr>
@@ -700,22 +740,45 @@ export default function ReceiptsPage() {
                                 {s.label}
                               </span>
                             </td>
-                            <td className="receipts-mono" style={{ color: '#6c5ce7', fontWeight: 700 }}>
-                              <div>{rec.priority_ivnum || '—'}</div>
-                              {rec.rc_ivnum && (
-                                <div style={{ color: '#16a34a', fontSize: 11, fontWeight: 600 }}>
-                                  RC: {rec.rc_ivnum}
-                                </div>
-                              )}
-                              {rec.fncnum && (
-                                <div style={{ color: '#6b7280', fontSize: 11 }}>
-                                  יומן: {rec.fncnum}
-                                </div>
-                              )}
+                            <td className="receipts-mono">
+                              {(() => {
+                                const finalNum = rec.doc_type === 'invoice_receipt' ? rec.final_ivnum : rec.rc_ivnum
+                                if (finalNum) {
+                                  return <>
+                                    <div style={{ color: rec.doc_type === 'invoice_receipt' ? '#7c3aed' : '#16a34a', fontWeight: 700, fontSize: 12 }}>
+                                      {rec.doc_type === 'invoice_receipt' ? 'חשבונית סופית' : 'קבלה סופית'}: {finalNum}
+                                    </div>
+                                    {rec.fncnum && /^\d+$/.test(String(rec.fncnum)) && (
+                                      <div style={{ color: '#b45309', fontWeight: 600, fontSize: 11 }}>
+                                        תנועת יומן: {rec.fncnum}
+                                      </div>
+                                    )}
+                                  </>
+                                }
+                                return <>
+                                  <div style={{ color: '#6b7280', fontSize: 11 }}>טיוטה: {rec.priority_ivnum || '—'}</div>
+                                  {rec.fncnum && /^\d+$/.test(String(rec.fncnum)) && (
+                                    <div style={{ color: '#b45309', fontWeight: 600, fontSize: 11 }}>
+                                      תנועת יומן: {rec.fncnum}
+                                    </div>
+                                  )}
+                                </>
+                              })()}
                             </td>
                             <td>{rec.branchname}</td>
                             <td className="receipts-actions">
                               <span style={{ color: '#16a34a', fontSize: '0.85em' }}>✓ סגורה</span>
+                              {!(rec.doc_type === 'invoice_receipt' ? rec.final_ivnum : rec.rc_ivnum) && (
+                                <button
+                                  className="receipts-btn receipts-btn-approve"
+                                  style={{ fontSize: '0.75em', padding: '2px 6px' }}
+                                  onClick={() => refreshFinalNumbers(rec)}
+                                  disabled={refreshingFinal === rec.id}
+                                  title="שלוף מספר קבלה סופי ותנועת יומן מפריוריטי"
+                                >
+                                  {refreshingFinal === rec.id ? '...' : 'רענן מספרים'}
+                                </button>
+                              )}
                               <button
                                 className="receipts-btn receipts-btn-reject"
                                 onClick={() => deleteReceipt(rec)}
@@ -882,7 +945,7 @@ export default function ReceiptsPage() {
                                 background: rec.doc_type === 'invoice_receipt' ? '#f5f3ff' : '#fef3c7',
                                 color:      rec.doc_type === 'invoice_receipt' ? '#7c3aed'  : '#92400e',
                                 fontWeight: 600 }}>
-                                {rec.doc_type === 'invoice_receipt' ? 'חשבונית קבלה' : 'טיוטה'}: {rec.priority_ivnum}
+                                {rec.doc_type === 'invoice_receipt' ? 'חשבונית מס קבלה' : 'טיוטה'}: {rec.priority_ivnum}
                               </span>
                               {rec.doc_type !== 'invoice_receipt' && (
                               <button
@@ -892,6 +955,16 @@ export default function ReceiptsPage() {
                                 disabled={closing === rec.id}
                               >
                                 {closing === rec.id ? 'סוגר...' : 'סגור קבלה'}
+                              </button>
+                              )}
+                              {rec.doc_type === 'invoice_receipt' && (
+                              <button
+                                className="receipts-btn receipts-btn-approve"
+                                style={{ fontSize: 12, padding: '3px 10px' }}
+                                onClick={() => closeEinvoice(rec)}
+                                disabled={closingEinvoice === rec.id}
+                              >
+                                {closingEinvoice === rec.id ? 'סוגר...' : 'סגור חשבונית'}
                               </button>
                               )}
                               <button
@@ -924,7 +997,7 @@ export default function ReceiptsPage() {
                                   onChange={e => setRowActions(prev => ({ ...prev, [txn.FNCNUM]: e.target.value }))}
                                 >
                                   <option value="receipt">הפקת קבלה</option>
-                                  <option value="invoice_receipt">חשבונית קבלה</option>
+                                  <option value="invoice_receipt">חשבונית מס קבלה</option>
                                   <option value="journal">רישום פקודת יומן</option>
                                   <option value="transfer">הפקת העברה בנקאית</option>
                                 </select>
@@ -957,10 +1030,10 @@ export default function ReceiptsPage() {
 
       {/* ── Receipt Modal ── */}
       {receiptModal && (
-        <div className="receipts-modal-overlay" onClick={e => { if (e.target === e.currentTarget) { setReceiptModal(null); setOpenInvoices([]); setSelectedInvoice(null) } }}>
+        <div className="receipts-modal-overlay" onClick={e => { if (e.target === e.currentTarget) { setReceiptModal(null); setOpenInvoices([]); setSelectedInvoices(new Set()) } }}>
           <div className="receipts-modal" dir="rtl">
             <h3 style={{ color: receiptDocType === 'invoice_receipt' ? '#7c3aed' : undefined }}>
-              {receiptDocType === 'invoice_receipt' ? 'חשבונית קבלה' : 'הפקת קבלה'}
+              {receiptDocType === 'invoice_receipt' ? 'חשבונית מס קבלה' : 'הפקת קבלה'}
             </h3>
 
             <table className="receipts-modal-info">
@@ -1002,15 +1075,10 @@ export default function ReceiptsPage() {
                         if (c.existing_rc) {
                           importExistingReceipt(receiptModal, c)
                           return
-                        } else if (c.ivnum) {
-                          setExistingRc(null)
-                          const inv = { IVNUM: c.ivnum, IVDATE: c.ivdate, TOTPRICE: c.totprice, STATDES: c.statdes }
-                          setOpenInvoices([inv])
-                          setSelectedInvoice(inv)
                         } else {
                           setExistingRc(null)
                           setOpenInvoices([])
-                          setSelectedInvoice(null)
+                          setSelectedInvoices(new Set())
                           searchOpenInvoices(c.accname, receiptModal)
                         }
                       }}
@@ -1046,7 +1114,7 @@ export default function ReceiptsPage() {
                   setModalAccname(v)
                   setModalAccdes('')
                   setOpenInvoices([])
-                  setSelectedInvoice(null)
+                  setSelectedInvoices(new Set())
                   searchAccounts(v)
                 }}
                 onBlur={e => {
@@ -1106,36 +1174,38 @@ export default function ReceiptsPage() {
                 <p style={{ fontSize: 11, color: '#6b7280', margin: '0 0 4px' }}>חשבוניות בסכום זה — לחץ לקישור:</p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   {openInvoices.map(inv => {
-                    const selected = selectedInvoice?.IVNUM === inv.IVNUM
+                    const selected = selectedInvoices.has(inv.IVNUM)
                     return (
-                      <button
+                      <label
                         key={inv.IVNUM}
-                        onClick={() => setSelectedInvoice(selected ? null : inv)}
                         style={{
-                          textAlign: 'right', padding: '3px 8px', borderRadius: 5,
+                          display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
+                          padding: '3px 8px', borderRadius: 5, cursor: 'pointer',
                           border: `1px solid ${selected ? '#16a34a' : '#bbf7d0'}`,
                           background: selected ? '#f0fdf4' : '#f9fffe',
-                          cursor: 'pointer', fontSize: 12, display: 'flex',
-                          alignItems: 'center', gap: 6, flexWrap: 'wrap',
+                          fontSize: 12,
                         }}
                       >
-                        {selected && <span style={{ color: '#16a34a', fontWeight: 700 }}>✓</span>}
+                        <input type="checkbox" checked={selected} onChange={() => {
+                          setSelectedInvoices(prev => {
+                            const next = new Set(prev)
+                            next.has(inv.IVNUM) ? next.delete(inv.IVNUM) : next.add(inv.IVNUM)
+                            return next
+                          })
+                        }} />
                         <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#1d4ed8', fontSize: 11 }}>{inv.IVNUM}</span>
                         <span style={{ color: '#374151', fontSize: 11 }}>{inv.CDES}</span>
                         <span style={{ color: '#16a34a', fontWeight: 600, fontSize: 11 }}>{fmtAmount(inv.TOTPRICE)}</span>
                         <span style={{ color: '#9ca3af', fontSize: 10 }}>{fmt(inv.IVDATE)}</span>
-                        <span style={{
-                          fontSize: 10, padding: '1px 5px', borderRadius: 8,
-                          background: inv.STATDES === 'סופית' ? '#f0fdf4' : '#fffbeb',
-                          color:      inv.STATDES === 'סופית' ? '#15803d'  : '#b45309',
-                        }}>{inv.STATDES}</span>
-                      </button>
+                      </label>
                     )
                   })}
                 </div>
-                {selectedInvoice && (
+                {selectedInvoices.size > 0 && (
                   <p style={{ fontSize: 11, color: '#15803d', margin: '3px 0 0', fontStyle: 'italic' }}>
-                    תקושר לחשבונית {selectedInvoice.IVNUM}
+                    {selectedInvoices.size === 1
+                      ? `תקושר לחשבונית ${[...selectedInvoices][0]}`
+                      : `תקושרו ${selectedInvoices.size} חשבוניות`}
                   </p>
                 )}
               </div>
@@ -1169,11 +1239,11 @@ export default function ReceiptsPage() {
                 onClick={submitReceipt}
                 disabled={modalSending || !!existingRc}
               >
-                {modalSending ? 'שולח לפריוריטי...' : receiptDocType === 'invoice_receipt' ? 'הפק חשבונית קבלה' : 'הפק קבלה'}
+                {modalSending ? 'שולח לפריוריטי...' : receiptDocType === 'invoice_receipt' ? 'הפק חשבונית מס קבלה' : 'הפק קבלה'}
               </button>
               <button
                 className="receipts-btn receipts-btn-cancel"
-                onClick={() => { setReceiptModal(null); setOpenInvoices([]); setSelectedInvoice(null); setExistingRc(null) }}
+                onClick={() => { setReceiptModal(null); setOpenInvoices([]); setSelectedInvoices(new Set()); setExistingRc(null) }}
                 disabled={modalSending}
               >
                 ביטול
@@ -1186,8 +1256,9 @@ export default function ReceiptsPage() {
       {/* ── Invoice Receipt Modal ── */}
       {irModal && (
         <div className="receipts-modal-overlay" onClick={e => { if (e.target === e.currentTarget) { setIrModal(null); setCustSuggestions([]) } }}>
-          <div className="receipts-modal" dir="rtl" style={{ maxWidth: 600 }}>
-            <h3 style={{ color: '#7c3aed' }}>חשבונית קבלה</h3>
+          <div className="receipts-modal" dir="rtl" style={{ maxWidth: 600, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+            <h3 style={{ color: '#7c3aed', flexShrink: 0 }}>חשבונית מס קבלה</h3>
+            <div style={{ flex: 1, overflowY: 'auto', paddingLeft: 4 }}>
 
             <table className="receipts-modal-info">
               <tbody>
@@ -1305,7 +1376,7 @@ export default function ReceiptsPage() {
                       <th style={{ textAlign: 'right', padding: '3px 4px', width: 60 }}>מקט</th>
                       <th style={{ textAlign: 'right', padding: '3px 4px' }}>פרטים</th>
                       <th style={{ textAlign: 'center', padding: '3px 4px', width: 60 }}>כמות</th>
-                      <th style={{ textAlign: 'center', padding: '3px 4px', width: 80 }}>מחיר</th>
+                      <th style={{ textAlign: 'center', padding: '3px 4px', width: 80 }}>מחיר כולל מע"מ</th>
                       <th style={{ width: 24 }}></th>
                     </tr>
                   </thead>
@@ -1342,14 +1413,41 @@ export default function ReceiptsPage() {
                     ))}
                   </tbody>
                 </table>
+                {irItems.length > 0 && (() => {
+                  const totalWithVat = irItems.reduce((s, it) => s + (Number(it.PRICE) * Number(it.TQUANT) || 0), 0)
+                  const totalPreVat  = Math.round(totalWithVat / 1.18 * 100) / 100
+                  const bankAmt      = irModal?.SUM1 || 0
+                  const diff         = Math.round((bankAmt - totalWithVat) * 100) / 100
+                  const exact        = Math.abs(diff) < 0.005
+                  return (
+                    <div style={{ marginTop: 6, fontSize: 12, color: '#374151', textAlign: 'left', direction: 'ltr' }}>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 16 }}>
+                        <span>סה"כ ללא מע"מ: <strong>{totalPreVat.toFixed(2)}</strong></span>
+                        <span style={{ color: exact ? '#16a34a' : '#b45309', fontWeight: 600 }}>
+                          סה"כ כולל מע"מ (18%): {totalWithVat.toFixed(2)}
+                        </span>
+                        <span style={{ color: '#1d4ed8', fontWeight: 700 }}>
+                          סכום בנק: {bankAmt.toFixed(2)}
+                        </span>
+                      </div>
+                      {!exact && (
+                        <div style={{ textAlign: 'right', marginTop: 3, color: '#b45309', fontSize: 11 }}>
+                          הפרש: <strong>{diff > 0 ? '+' : ''}{diff.toFixed(2)} ₪</strong>
+                          {' — '}שורת הפרש תתווסף אוטומטית לחשבונית
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
             )}
 
             {irError && <p className="receipts-error" style={{ margin: '8px 0' }}>{irError}</p>}
+            </div>{/* end scrollable content */}
 
-            <div className="receipts-modal-actions">
+            <div className="receipts-modal-actions" style={{ flexShrink: 0, borderTop: '1px solid #e5e7eb', paddingTop: 14, marginTop: 8 }}>
               <button className="receipts-btn receipts-btn-approve" onClick={submitInvoiceReceipt} disabled={irSending}>
-                {irSending ? 'שולח לפריוריטי...' : 'הפק חשבונית קבלה'}
+                {irSending ? 'שולח לפריוריטי...' : 'הפק חשבונית מס קבלה'}
               </button>
               <button className="receipts-btn receipts-btn-cancel" onClick={() => { setIrModal(null); setCustSuggestions([]) }} disabled={irSending}>
                 ביטול

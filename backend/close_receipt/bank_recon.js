@@ -1,13 +1,19 @@
 'use strict';
 /**
- * Mark a journal entry + bank line as temporary bank reconciliation (BANKRECONSP).
+ * Mark a bank line + journal entry as temporary reconciliation in BANKRECONSP.
  *
  * Flow:
- *   1. Run MANBANKRECON (preparation) for the bank account (CASHNAME)
- *   2. Run CREDITRECONSP.P (auto-reconcile) — Priority matches pairs automatically
+ *   1. Run MANBANKRECON (refresh reconciliation temp table for the bank account)
+ *   2. Open BANKRECONSP form and find rows matching:
+ *        - bankFncnum  (the original bank transaction, e.g. "BP16089-2")
+ *        - journalFncnum (the Priority journal entry, e.g. "T127800")
+ *   3. Set RECON='Y' on both rows so they appear as a pending pair.
+ *      The user then opens BANKRECONSP in Priority and presses CLOSECREDITRECONSP
+ *      to finalise the reconciliation.
+ *   Fallback: if form-based marking fails, run CREDITRECONSP auto-match.
  *
- * Usage: node bank_recon.js <FNCNUM> <CASHNAME>
- *   e.g. node bank_recon.js T127800 103-200
+ * Usage: node bank_recon.js <journalFncnum> <cashname> [bankFncnum]
+ *   e.g. node bank_recon.js T127800 103-200 BP16110-2
  *
  * Output: JSON to stdout — { ok: true } or { ok: false, error }
  */
@@ -43,17 +49,15 @@ async function runProc(name, inputData, company) {
     if (t === 'inputFields') {
       const data = inputData || { EditFields: [] };
       step = await withTimeout(step.proc.inputFields(1, data), 30000, `${name}.inputFields`);
-      inputData = null; // only send once
+      inputData = null;
     } else if (t === 'inputOptions') {
       step = await withTimeout(step.proc.inputOptions(1, {}), 30000, `${name}.inputOptions`);
     } else if (t === 'message') {
       const msg = step.message || '';
-      // "דוח ריק" = empty report = no matches found, that's OK
       if (msg.includes('ריק') || msg.includes('empty')) {
         process.stderr.write(`  Empty result for ${name} — no matches\n`);
         return { ok: true, empty: true };
       }
-      // "להמשיך בפעולה?" = confirm dialog
       if (step.proc && step.proc.message) {
         step = await withTimeout(step.proc.message(1), 30000, `${name}.message`);
       } else {
@@ -71,8 +75,8 @@ async function runProc(name, inputData, company) {
   return { ok: true };
 }
 
-async function activateOnForm(formName, activationName, company) {
-  process.stderr.write(`formStart ${formName}...\n`);
+async function runActivationOnForm(formName, activationName, company) {
+  process.stderr.write(`formStart ${formName} for activation ${activationName}...\n`);
   const form = await withTimeout(priority.formStart(formName, null, null, company), 30000, `formStart ${formName}`);
 
   process.stderr.write(`activateStart ${activationName}...\n`);
@@ -83,15 +87,9 @@ async function activateOnForm(formName, activationName, company) {
   while (step && depth < 10) {
     const t = step.type;
     process.stderr.write(`  [${depth}] type=${t} msg=${step.message || ''}\n`);
-
     if (t === 'message') {
       const msg = step.message || '';
-      if (msg.includes('ריק') || msg.includes('שורות')) {
-        process.stderr.write(`  Message (continuing): ${msg}\n`);
-        if (step.proc && step.proc.message) {
-          step = await withTimeout(step.proc.message(1), 30000, 'activation.message');
-        } else return { ok: true, message: msg };
-      } else if (step.proc && step.proc.message) {
+      if (step.proc && step.proc.message) {
         step = await withTimeout(step.proc.message(1), 30000, 'activation.message');
       } else {
         return { ok: true, message: msg };
@@ -108,27 +106,74 @@ async function activateOnForm(formName, activationName, company) {
   return { ok: true };
 }
 
+/**
+ * Open BANKRECONSP form, find rows for bankFncnum and journalFncnum,
+ * mark RECON='Y' on each, and save. Returns number of rows marked.
+ */
+async function markReconRows(bankFncnum, journalFncnum, company) {
+  process.stderr.write(`formStart BANKRECONSP for RECON marking...\n`);
+  const form = await withTimeout(
+    priority.formStart('BANKRECONSP', null, null, company),
+    30000, 'formStart BANKRECONSP'
+  );
+
+  // Read first page of rows
+  process.stderr.write(`getRows...\n`);
+  const data = await withTimeout(form.getRows(1), 20000, 'getRows');
+
+  const rows = (data && (data.rows || data.Rows)) ? (data.rows || data.Rows) : [];
+  process.stderr.write(`Got ${rows.length} rows\n`);
+
+  const targets = new Set([bankFncnum, journalFncnum].filter(Boolean));
+  let marked = 0;
+
+  for (const row of rows) {
+    const fncnum = row.FNCNUM || row.fncnum || '';
+    if (!targets.has(fncnum)) continue;
+
+    const rowNum = row.row || row.Row || row.rownum;
+    process.stderr.write(`  Marking RECON for row ${rowNum} FNCNUM=${fncnum}\n`);
+
+    try {
+      await withTimeout(form.setActiveRow(rowNum), 10000, `setActiveRow ${rowNum}`);
+      await withTimeout(form.fieldUpdate('RECON', 'Y'), 10000, `fieldUpdate RECON row ${rowNum}`);
+      await withTimeout(form.saveRow(false), 10000, `saveRow ${rowNum}`);
+      marked++;
+    } catch (e) {
+      process.stderr.write(`  Warning: failed to mark row ${rowNum}: ${e.message}\n`);
+    }
+  }
+
+  // Close the form cleanly
+  try {
+    await withTimeout(form.endCurrentForm(false), 5000, 'endCurrentForm').catch(() => {});
+  } catch (_) {}
+
+  return marked;
+}
+
 async function main() {
-  const fncnum   = process.argv[2];
-  const cashname = process.argv[3];
-  if (!fncnum || !cashname) {
-    throw new Error('Usage: node bank_recon.js <FNCNUM> <CASHNAME>');
+  const journalFncnum = process.argv[2];
+  const cashname      = process.argv[3];
+  const bankFncnum    = process.argv[4] || '';
+
+  if (!journalFncnum || !cashname) {
+    throw new Error('Usage: node bank_recon.js <journalFncnum> <cashname> [bankFncnum]');
   }
 
   const odataUrl = process.env.PRIORITY_URL_REAL || process.env.PRIORITY_URL || '';
   const { serviceUrl, tabulaini, company } = parseOdataUrl(odataUrl);
-  const user = process.env.PRIORITY_USERNAME;
-  const pass = process.env.PRIORITY_PASSWORD;
 
   process.stderr.write(`Login -> ${serviceUrl} (${company})\n`);
   await priority.login({
-    username: user, password: pass,
+    username: process.env.PRIORITY_USERNAME,
+    password: process.env.PRIORITY_PASSWORD,
     url: serviceUrl, tabulaini,
     language: 1, appname: 'TACT-BankRecon',
   });
   process.stderr.write('Login OK\n');
 
-  // Step 1: MANBANKRECON — prepare reconciliation data for this bank account
+  // Step 1: MANBANKRECON — refresh reconciliation data for this bank account
   const prepResult = await runProc('MANBANKRECON', {
     EditFields: [{ field: 1, value: cashname }]
   }, company);
@@ -138,15 +183,28 @@ async function main() {
     throw new Error('MANBANKRECON failed: ' + (prepResult.error || 'unknown'));
   }
 
-  // Step 2: CREDITRECONSP.P — automatic reconciliation (matches journal ↔ bank line)
-  const reconResult = await runProc('CREDITRECONSP', null, company);
-  process.stderr.write(`CREDITRECONSP result: ${JSON.stringify(reconResult)}\n`);
+  // Step 2: Mark RECON on the specific bank line + journal entry rows
+  let marked = 0;
+  let usedFallback = false;
 
-  if (!reconResult.ok && !reconResult.empty) {
-    throw new Error('CREDITRECONSP failed: ' + (reconResult.error || 'unknown'));
+  if (bankFncnum || journalFncnum) {
+    try {
+      marked = await markReconRows(bankFncnum, journalFncnum, company);
+      process.stderr.write(`Marked ${marked} rows with RECON=Y\n`);
+    } catch (e) {
+      process.stderr.write(`Form-based RECON marking failed (${e.message}), falling back to CREDITRECONSP\n`);
+      usedFallback = true;
+    }
   }
 
-  process.stdout.write(JSON.stringify({ ok: true, fncnum, cashname }));
+  // Fallback: if form marking didn't work, run CREDITRECONSP auto-match
+  if (usedFallback || marked === 0) {
+    process.stderr.write('Running CREDITRECONSP auto-match as fallback...\n');
+    const reconResult = await runActivationOnForm('BANKRECONSP', 'CREDITRECONSP', company);
+    process.stderr.write(`CREDITRECONSP result: ${JSON.stringify(reconResult)}\n`);
+  }
+
+  process.stdout.write(JSON.stringify({ ok: true, journalFncnum, bankFncnum, cashname, markedRows: marked }));
 }
 
 main().catch(err => {

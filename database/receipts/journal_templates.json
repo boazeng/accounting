@@ -12,6 +12,21 @@
   "עיריית הוד השר": {
     "counterpart_account": "606-4",
     "counterpart_desc": "ארנונה -מסי עריה",
-    "updated_at": "2026-05-25T14:35:49.080338"
+    "updated_at": "2026-05-26T10:36:57.923604"
+  },
+  "העברה-מנורה מבטחים": {
+    "counterpart_account": "7021",
+    "counterpart_desc": "מנורה מבטחים",
+    "updated_at": "2026-05-26T09:03:37.405700"
+  },
+  "זיכוי -חניה אורבנית": {
+    "counterpart_account": "3048",
+    "counterpart_desc": "חו\"ז חניה אורבנית",
+    "updated_at": "2026-05-26T14:47:26.840141"
+  },
+  "ביט' לא": {
+    "counterpart_account": "206-5",
+    "counterpart_desc": "ביטוח לאומי",
+    "updated_at": "2026-05-27T10:28:28.197887"
   }
 }
