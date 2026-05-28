@@ -5371,6 +5371,100 @@ def bank_line_create_journal():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/receipts/bank-line/create-transfer", methods=["POST"])
+def bank_line_create_transfer():
+    """Create a QINVOICES bank transfer document in Priority for a bank line."""
+    try:
+        data       = request.get_json(force=True) or {}
+        txn_id     = str(data.get("txn_id",     "")).strip()
+        amount     = float(data.get("amount",    0))
+        cashname   = str(data.get("cashname",   "")).strip()
+        branchname = str(data.get("branchname", "")).strip()
+        accname    = str(data.get("accname",    "")).strip()
+        details    = str(data.get("details",    "")).strip()
+        ivdate     = str(data.get("ivdate",     ""))[:10]
+        direction  = str(data.get("direction",  "-")).strip()
+
+        if not txn_id or not accname or amount <= 0:
+            return jsonify({"ok": False, "error": "חסרים שדות חובה: חשבון ספק וסכום"}), 400
+
+        if not details:
+            details = "תשלום"
+
+        payload = {
+            "ACCNAME":    accname,
+            "IVDATE":     ivdate,
+            "PAYDATE":    ivdate,
+            "BRANCHNAME": branchname,
+            "CASHNAME":   cashname,
+            "DETAILS":    details,
+            "QPRICE":     amount,
+            "FNCITEMSFLAG": "Y",
+        }
+        logger.info(f"bank_line_create_transfer QINVOICES payload: {payload}")
+
+        resp = http_requests.post(
+            f"{_prio_url()}/QINVOICES", json=payload,
+            headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=20, verify=False,
+        )
+        if not resp.ok:
+            logger.error(f"QINVOICES POST {resp.status_code}: {resp.text[:500]}")
+        resp.raise_for_status()
+        result = resp.json()
+        ivnum = result.get("IVNUM", "")
+        debit = result.get("DEBIT", "D")
+        ivtype = result.get("IVTYPE", "Q")
+
+        # Populate HFNCITEMS_SUBFORM (GL journal line for supplier side)
+        if ivnum:
+            q_key = f"IVNUM='{ivnum}',IVTYPE='{ivtype}',DEBIT='{debit}'"
+            hfnc_resp = http_requests.post(
+                f"{_prio_url()}/QINVOICES({q_key})/HFNCITEMS_SUBFORM",
+                json={"ACCNAME": accname, "DEBIT": amount, "DETAILS": details},
+                headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=20, verify=False,
+            )
+            if not hfnc_resp.ok:
+                logger.warning(f"HFNCITEMS_SUBFORM POST {hfnc_resp.status_code}: {hfnc_resp.text[:300]}")
+
+        # Record in action queue as done
+        if action_queue_db:
+            item = action_queue_db.add_item(
+                fncnum=txn_id,
+                curdate=ivdate,
+                details=details,
+                accname1=accname,
+                accdes1=result.get("CDES", ""),
+                accname2=cashname,
+                accdes2="",
+                sum1=amount,
+                direction=direction,
+                branchname=branchname,
+                action="transfer",
+                priority_fncnum=ivnum,
+                cashname=cashname,
+            )
+            if item:
+                action_queue_db.mark_done(item["id"])
+
+        # Mark bank line as processed
+        processed = _load_processed_txns()
+        processed.add(txn_id)
+        _save_processed_txns(processed)
+
+        _launch_bank_recon(ivnum, cashname, txn_id, label="transfer")
+
+        return jsonify({"ok": True, "ivnum": ivnum})
+
+    except http_requests.exceptions.HTTPError as e:
+        try:
+            detail = e.response.json()
+        except Exception:
+            detail = str(e)
+        return jsonify({"ok": False, "error": str(e), "detail": detail}), 500
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.route("/api/receipts/journal/<priority_fncnum>/finalize", methods=["POST"])
 def journal_finalize(priority_fncnum):
     """Register a journal entry via Web SDK (CLOSEANFNCTRANS via WCF — not OData).
@@ -5525,6 +5619,78 @@ def journal_finalize(priority_fncnum):
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/receipts/transfer/<ivnum>/finalize", methods=["POST"])
+def transfer_finalize(ivnum):
+    """Finalize a QINVOICES bank transfer via CLOSEQIV (Web SDK).
+    Returns the transfer IVNUM and the resulting journal FNCNUM.
+    Body (optional): {"final_fncnum": "xxx"} to manually confirm without SDK call.
+    """
+    import subprocess, shutil
+    try:
+        data = request.get_json(force=True) or {}
+        manual_fncnum = (data.get("final_fncnum") or "").strip()
+
+        if manual_fncnum:
+            if action_queue_db:
+                action_queue_db.mark_final_by_priority_fncnum(ivnum, ivnum, journal_fncnum=manual_fncnum)
+            return jsonify({"ok": True, "ivnum": ivnum, "final_ivnum": ivnum, "fncnum": manual_fncnum})
+
+        # Check current state in Priority
+        qkey = f"IVNUM='{ivnum}',IVTYPE='Q',DEBIT='D'"
+        check = http_requests.get(
+            f"{_prio_url()}/QINVOICES({qkey})?$select=IV,FINAL,FNCNUM",
+            headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=15, verify=False,
+        )
+        if check.ok:
+            rec = check.json()
+            if rec.get("FINAL") == "Y":
+                fncnum = rec.get("FNCNUM") or ivnum
+                if action_queue_db:
+                    action_queue_db.mark_final_by_priority_fncnum(ivnum, ivnum, journal_fncnum=fncnum)
+                return jsonify({"ok": True, "ivnum": ivnum, "final_ivnum": ivnum, "fncnum": fncnum, "already_final": True})
+
+        script_dir = os.path.join(os.path.dirname(__file__), "close_receipt")
+        node_exe = shutil.which("node") or r"C:\Program Files\nodejs\node.exe"
+        result = subprocess.run(
+            [node_exe, "close_transfer.js", ivnum],
+            cwd=script_dir,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=90,
+        )
+        stdout = (result.stdout or b"").decode("utf-8", errors="replace").strip()
+        stderr = (result.stderr or b"").decode("utf-8", errors="replace").strip()
+        if stderr:
+            logger.info(f"close_transfer stderr: {stderr}")
+
+        try:
+            sdk_data = json.loads(stdout) if stdout else {}
+        except Exception:
+            sdk_data = {}
+
+        if result.returncode != 0 or not sdk_data.get("ok"):
+            err = sdk_data.get("error") or stderr or "שגיאה לא ידועה"
+            logger.error(f"close_transfer.js failed for {ivnum}: {err}")
+            return jsonify({"ok": False, "error": err, "needs_manual": True}), 500
+
+        final_ivnum = sdk_data.get("final_ivnum") or ivnum
+        fncnum      = sdk_data.get("fncnum") or ivnum
+
+        queue_item = action_queue_db.get_by_priority_fncnum(ivnum) if action_queue_db else None
+        if action_queue_db:
+            action_queue_db.mark_final_by_priority_fncnum(ivnum, final_ivnum, journal_fncnum=fncnum)
+        recon_cashname = (queue_item or {}).get("cashname", "")
+        if recon_cashname:
+            _launch_bank_recon(fncnum, recon_cashname, (queue_item or {}).get("fncnum", ""), label="transfer-final")
+
+        return jsonify({"ok": True, "ivnum": ivnum, "final_ivnum": final_ivnum, "fncnum": fncnum})
+
+    except subprocess.TimeoutExpired:
+        return jsonify({"ok": False, "error": "close_transfer.js timed out (90s)", "needs_manual": True}), 500
+    except Exception as e:
+        logger.error(f"transfer_finalize error for {ivnum}: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.route("/api/receipts/journal-template", methods=["GET"])
 def journal_template_suggest():
     """Return saved counterpart-account suggestion for a transaction description."""
@@ -5593,6 +5759,29 @@ def priority_accounts_search():
         return jsonify({"ok": True, "accounts": accounts})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e), "accounts": []}), 500
+
+
+@app.route("/api/receipts/priority-suppliers", methods=["GET"])
+def priority_suppliers_search():
+    """Search Priority suppliers (SUPPLIERS) for autocomplete."""
+    try:
+        q = (request.args.get("q") or "").strip()
+        if len(q) < 1:
+            return jsonify({"ok": True, "suppliers": []})
+        q_safe = q.replace("'", "")
+        flt = f"contains(SUPNAME,'{q_safe}') or contains(SUPDES,'{q_safe}')"
+        r = http_requests.get(
+            f"{_prio_url()}/SUPPLIERS?$filter={flt}&$select=SUPNAME,SUPDES&$top=30",
+            headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=10, verify=False,
+        )
+        r.raise_for_status()
+        suppliers = [
+            {"supname": s["SUPNAME"], "supdes": s.get("SUPDES", "")}
+            for s in r.json().get("value", [])
+        ]
+        return jsonify({"ok": True, "suppliers": suppliers})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e), "suppliers": []}), 500
 
 
 @app.route("/api/receipts/bank-line/record-action", methods=["POST"])

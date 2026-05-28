@@ -95,7 +95,7 @@ def get_by_priority_fncnum(priority_fncnum):
     return None
 
 
-def mark_final_by_priority_fncnum(priority_fncnum, final_fncnum=None):
+def mark_final_by_priority_fncnum(priority_fncnum, final_fncnum=None, journal_fncnum=None):
     records = _load()
     for r in records:
         if r.get("priority_fncnum") == priority_fncnum and r.get("status") == "done":
@@ -103,6 +103,8 @@ def mark_final_by_priority_fncnum(priority_fncnum, final_fncnum=None):
             r["final_at"] = datetime.now().isoformat()
             if final_fncnum and final_fncnum != priority_fncnum:
                 r["priority_fncnum"] = final_fncnum
+            if journal_fncnum:
+                r["journal_fncnum"] = journal_fncnum
             _save(records)
             return r
     return None
@@ -113,4 +115,5 @@ def list_done():
     for item in items:
         item.setdefault("priority_fncnum", "")
         item.setdefault("is_final", False)
+        item.setdefault("journal_fncnum", "")
     return items

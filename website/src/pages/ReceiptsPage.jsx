@@ -37,6 +37,8 @@ export default function ReceiptsPage() {
   const [draftReceipts, setDraftReceipts] = useState([])
   const [closedReceipts, setClosedReceipts] = useState([])
   const [doneActions, setDoneActions]     = useState([])  // journal/transfer entries sent to Priority
+  const [doneFilterBranch, setDoneFilterBranch] = useState('all')
+  const [doneFilterAction, setDoneFilterAction] = useState('all')
   const [loading, setLoading]     = useState(true)
   const [error, setError]         = useState('')
 
@@ -84,6 +86,10 @@ export default function ReceiptsPage() {
   const [finalizeModal, setFinalizeModal]                 = useState(null) // {priorityFncnum}
   const [finalizeInputNum, setFinalizeInputNum]           = useState('')
   const [finalizeSaving, setFinalizeSaving]               = useState(false)
+  const [finalizingTransfer, setFinalizingTransfer]       = useState(null) // ivnum being finalized
+  const [finalizeTransferModal, setFinalizeTransferModal] = useState(null) // {ivnum, error}
+  const [finalizeTransferInput, setFinalizeTransferInput] = useState('')
+  const [finalizeTransferSaving, setFinalizeTransferSaving] = useState(false)
   const [cancellingAction, setCancellingAction]           = useState(null) // item_id being cancelled
 
   // Account code autocomplete (shared for receipt + invoice-receipt modals)
@@ -100,6 +106,17 @@ export default function ReceiptsPage() {
   const [irSending, setIrSending]     = useState(false)
   const [irError, setIrError]         = useState('')
   const [irPrevNote, setIrPrevNote]   = useState('')  // feedback on previous invoice lookup
+
+  // Bank transfer (QINVOICES) modal state
+  const [transferModal, setTransferModal]               = useState(null)
+  const [transferAccname, setTransferAccname]           = useState('')
+  const [transferAccdes, setTransferAccdes]             = useState('')
+  const [transferDetails, setTransferDetails]           = useState('')
+  const [transferSending, setTransferSending]           = useState(false)
+  const [transferError, setTransferError]               = useState('')
+  const [transferSuccess, setTransferSuccess]           = useState('')
+  const [transferAccSugg, setTransferAccSugg]           = useState([])
+  const [transferAccSearching, setTransferAccSearching] = useState(false)
 
   const loadAll = useCallback(async (d, b) => {
     const daysParam   = d ?? days
@@ -656,6 +673,114 @@ export default function ReceiptsPage() {
     }
   }
 
+  function openTransferModal(txn) {
+    setTransferModal(txn)
+    setTransferAccname('')
+    setTransferAccdes('')
+    setTransferDetails('תשלום')
+    setTransferError('')
+    setTransferSuccess('')
+    setTransferAccSugg([])
+  }
+
+  async function finalizeTransfer(ivnum) {
+    setFinalizingTransfer(ivnum)
+    try {
+      const resp = await fetch(`${API}/api/receipts/transfer/${encodeURIComponent(ivnum)}/finalize`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
+      })
+      const data = await resp.json()
+      if (data.ok) {
+        const finalIvnum = data.final_ivnum || ivnum
+        setDoneActions(prev => prev.map(it =>
+          it.priority_fncnum === ivnum
+            ? { ...it, is_final: true, priority_fncnum: finalIvnum, journal_fncnum: data.fncnum }
+            : it
+        ))
+        return
+      }
+      setFinalizeTransferModal({ ivnum, error: data.error })
+      setFinalizeTransferInput('')
+    } catch (e) {
+      setFinalizeTransferModal({ ivnum, error: e.message })
+      setFinalizeTransferInput('')
+    } finally {
+      setFinalizingTransfer(null)
+    }
+  }
+
+  async function confirmFinalizeTransfer() {
+    const { ivnum } = finalizeTransferModal
+    const finalNum = finalizeTransferInput.trim() || ivnum
+    setFinalizeTransferSaving(true)
+    try {
+      const resp = await fetch(`${API}/api/receipts/transfer/${encodeURIComponent(ivnum)}/finalize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ final_fncnum: finalNum }),
+      })
+      const data = await resp.json()
+      if (!data.ok) throw new Error(data.error || 'שגיאה')
+      setDoneActions(prev => prev.map(it =>
+        it.priority_fncnum === ivnum
+          ? { ...it, is_final: true, journal_fncnum: data.fncnum }
+          : it
+      ))
+      setFinalizeTransferModal(null)
+      setFinalizeTransferInput('')
+    } catch (e) {
+      alert('שגיאה: ' + e.message)
+    } finally {
+      setFinalizeTransferSaving(false)
+    }
+  }
+
+
+  async function searchTransferAcc(q, branchname) {
+    if (!q || q.length < 2) { setTransferAccSugg([]); return }
+    setTransferAccSearching(true)
+    try {
+      const res = await fetch(`${API}/api/receipts/priority-accounts?q=${encodeURIComponent(q)}&branchname=${encodeURIComponent(branchname || '')}`).then(r => r.json())
+      setTransferAccSugg((res.accounts || []).slice(0, 6))
+    } catch { /* silent */ } finally { setTransferAccSearching(false) }
+  }
+
+  async function submitTransfer() {
+    if (!transferAccname.trim()) { setTransferError('יש להזין חשבון ספק'); return }
+    setTransferSending(true)
+    setTransferError('')
+    try {
+      const txn  = transferModal
+      const resp = await fetch(`${API}/api/receipts/bank-line/create-transfer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          txn_id:     txn.FNCNUM,
+          direction:  txn.direction,
+          amount:     txn.SUM1,
+          cashname:   txn.CASHNAME,
+          branchname: txn.BRANCHNAME,
+          accname:    transferAccname.trim(),
+          details:    transferDetails,
+          ivdate:     (txn.CURDATE || '').slice(0, 10),
+        }),
+      })
+      const data = await resp.json()
+      if (!data.ok) throw new Error(
+        data.detail?.FORM?.InterfaceErrors?.text ||
+        data.detail?.error?.message ||
+        data.error || 'שגיאה'
+      )
+      setTransferSuccess(data.ivnum ? `העברה בנקאית נוצרה: ${data.ivnum}` : 'העברה בנקאית נוצרה בהצלחה')
+      await loadAll()
+      setTimeout(() => { setTransferModal(null); setTransferSuccess('') }, 2000)
+    } catch (e) {
+      setTransferError(e.message)
+    } finally {
+      setTransferSending(false)
+    }
+  }
+
   async function submitJournal() {
     if (!journalCounterpart.trim()) { setJournalError('יש להזין חשבון נגדי'); return }
     setJournalSending(true)
@@ -709,12 +834,50 @@ export default function ReceiptsPage() {
 
         {!loading && (
           <>
-            {/* ── Section A: Sent to Priority ── */}
-            {closedReceipts.length > 0 && (
+            {/* ── Section A: פעולות שבוצעו בפריוריטי (קבלות + פקודות יומן + העברות) ── */}
+            {(() => {
+              const sentJournals = doneActions.filter(it => it.priority_fncnum && it.action !== 'receipt')
+              const total = closedReceipts.length + sentJournals.length
+              if (total === 0) return null
+
+              // ענפים ייחודיים לסינון
+              const doneBranches = [...new Set([
+                ...closedReceipts.map(r => r.branchname).filter(Boolean),
+                ...sentJournals.map(r => r.branchname).filter(Boolean),
+              ])].sort()
+
+              // סינון
+              const filteredReceipts = closedReceipts.filter(r =>
+                (doneFilterBranch === 'all' || r.branchname === doneFilterBranch) &&
+                (doneFilterAction === 'all' || r.doc_type === doneFilterAction)
+              )
+              const filteredJournals = sentJournals.filter(r =>
+                (doneFilterBranch === 'all' || r.branchname === doneFilterBranch) &&
+                (doneFilterAction === 'all' || r.action === doneFilterAction)
+              )
+
+              return (
               <section className="receipts-section">
                 <div className="receipts-section-header">
-                  <h2>קבלות שנשלחו לפריוריטי</h2>
-                  <span className="receipts-badge" style={{ background: '#16a34a' }}>{closedReceipts.length}</span>
+                  <h2>פעולות שבוצעו בפריוריטי</h2>
+                  <span className="receipts-badge" style={{ background: '#16a34a' }}>{total}</span>
+                  <div className="receipts-days-selector">
+                    <label>סניף:</label>
+                    <select value={doneFilterBranch} onChange={e => setDoneFilterBranch(e.target.value)}>
+                      <option value="all">כל הסניפים</option>
+                      {doneBranches.map(b => <option key={b} value={b}>{b}</option>)}
+                    </select>
+                  </div>
+                  <div className="receipts-days-selector">
+                    <label>פעולה:</label>
+                    <select value={doneFilterAction} onChange={e => setDoneFilterAction(e.target.value)}>
+                      <option value="all">הכל</option>
+                      <option value="receipt">קבלה</option>
+                      <option value="invoice_receipt">חשבונית קבלה</option>
+                      <option value="journal">פקודת יומן</option>
+                      <option value="transfer">העברה בנקאית</option>
+                    </select>
+                  </div>
                 </div>
                 <div className="receipts-table-wrap">
                   <table className="receipts-table">
@@ -730,7 +893,7 @@ export default function ReceiptsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {closedReceipts.map(rec => {
+                      {filteredReceipts.map(rec => {
                         const s = ACTION_STYLES[rec.doc_type] || ACTION_STYLES.receipt
                         return (
                           <tr key={rec.id} style={{ opacity: 0.6 }}>
@@ -769,7 +932,6 @@ export default function ReceiptsPage() {
                             </td>
                             <td>{rec.branchname}</td>
                             <td className="receipts-actions">
-                              <span style={{ color: '#16a34a', fontSize: '0.85em' }}>✓ סגורה</span>
                               {!(rec.doc_type === 'invoice_receipt' ? rec.final_ivnum : rec.rc_ivnum) && (
                                 <button
                                   className="receipts-btn receipts-btn-approve"
@@ -782,67 +944,67 @@ export default function ReceiptsPage() {
                                 </button>
                               )}
                               <button
-                                className="receipts-btn receipts-btn-reject"
                                 onClick={() => deleteReceipt(rec)}
                                 disabled={deleting === rec.id}
+                                style={{ fontSize: 11, padding: '2px 8px', cursor: 'pointer',
+                                         background: '#f9fafb', border: '1px solid #9ca3af',
+                                         borderRadius: 4, color: '#6b7280', whiteSpace: 'nowrap' }}
                               >
-                                {deleting === rec.id ? '...' : 'בטל'}
+                                {deleting === rec.id ? '...' : 'מחוק'}
                               </button>
                             </td>
                           </tr>
                         )
                       })}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            )}
-
-            {/* ── Section A2: Journal / transfer actions sent to Priority ── */}
-            {(() => {
-              const sentJournals = doneActions.filter(it => it.priority_fncnum && it.action !== 'receipt')
-              if (sentJournals.length === 0) return null
-              return (
-              <section className="receipts-section">
-                <div className="receipts-section-header">
-                  <h2>פקודות יומן שנשלחו לפריוריטי</h2>
-                  <span className="receipts-badge" style={{ background: '#b45309' }}>{sentJournals.length}</span>
-                </div>
-                <div className="receipts-table-wrap">
-                  <table className="receipts-table">
-                    <thead>
-                      <tr>
-                        <th>תאריך</th>
-                        <th>פרטים</th>
-                        <th>סכום</th>
-                        <th>חשבון בנק</th>
-                        <th>חשבון נגדי</th>
-                        <th>סניף</th>
-                        <th>מס׳ בפריוריטי</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sentJournals.map(item => (
+                      {filteredJournals.map(item => {
+                        const actionLabel = item.action === 'transfer' ? 'העברה בנקאית' : 'פקודת יומן'
+                        const actionColor = item.action === 'transfer' ? '#1d4ed8' : '#b45309'
+                        const actionBg    = item.action === 'transfer' ? '#eff6ff'  : '#fff7ed'
+                        return (
                         <tr key={item.id} style={{ opacity: item.is_final ? 0.65 : 0.9 }}>
                           <td>{fmt(item.curdate)}</td>
-                          <td>{item.details}</td>
+                          <td>
+                            <div>{item.details}</div>
+                            <div style={{ fontSize: 10, color: '#9ca3af' }}>
+                              {item.accname1}{item.accdes1 ? ` · ${item.accdes1}` : ''}{item.accname2 ? ` → ${item.accname2}` : ''}
+                            </div>
+                          </td>
                           <td><AmountCell sum1={item.sum1} direction={item.direction} /></td>
-                          <td className="receipts-mono" style={{ fontSize: 11 }}>
-                            <div>{item.accname1}</div>
-                            {item.accdes1 && <div style={{ color: '#9ca3af', fontSize: 10 }}>{item.accdes1}</div>}
+                          <td>
+                            <span className="receipts-action-label" style={{ color: actionColor, background: actionBg }}>
+                              {actionLabel}
+                            </span>
                           </td>
                           <td className="receipts-mono" style={{ fontSize: 11 }}>
-                            <div>{item.accname2}</div>
-                            {item.accdes2 && <div style={{ color: '#9ca3af', fontSize: 10 }}>{item.accdes2}</div>}
+                            {item.action === 'transfer' ? (
+                              <>
+                                <div style={{ color: item.is_final ? '#1d4ed8' : '#6c5ce7', fontWeight: 700 }}>{item.priority_fncnum}</div>
+                                {item.journal_fncnum && (
+                                  <div style={{ color: '#b45309', fontWeight: 600, fontSize: 10 }}>תנועת יומן: {item.journal_fncnum}</div>
+                                )}
+                                {item.is_final && <div style={{ fontSize: 10, color: '#15803d', fontWeight: 400 }}>סופי</div>}
+                              </>
+                            ) : (
+                              <>
+                                <div style={{ color: item.is_final ? '#15803d' : '#6c5ce7', fontWeight: 700 }}>{item.priority_fncnum}</div>
+                                {item.is_final && <div style={{ fontSize: 10, color: '#15803d', fontWeight: 400 }}>סופי</div>}
+                              </>
+                            )}
                           </td>
                           <td>{item.branchname}</td>
-                          <td className="receipts-mono" style={{ color: item.is_final ? '#15803d' : '#6c5ce7', fontWeight: 700 }}>
-                            {item.priority_fncnum}
-                            {item.is_final && <div style={{ fontSize: 10, color: '#15803d', fontWeight: 400 }}>סופי</div>}
-                          </td>
                           <td style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                            {!item.is_final && (
+                            {!item.is_final && item.action === 'transfer' && (
+                              <button
+                                onClick={() => finalizeTransfer(item.priority_fncnum)}
+                                disabled={finalizingTransfer === item.priority_fncnum}
+                                style={{ fontSize: 11, padding: '2px 8px', cursor: 'pointer',
+                                         background: '#eff6ff', border: '1px solid #1d4ed8',
+                                         borderRadius: 4, color: '#1d4ed8', whiteSpace: 'nowrap' }}
+                              >
+                                {finalizingTransfer === item.priority_fncnum ? '...' : 'אישור העברה בנקאית'}
+                              </button>
+                            )}
+                            {!item.is_final && item.action !== 'transfer' && (
                               <button
                                 onClick={() => finalizeJournal(item.priority_fncnum)}
                                 disabled={finalizingJournal === item.priority_fncnum}
@@ -874,7 +1036,8 @@ export default function ReceiptsPage() {
                             </button>
                           </td>
                         </tr>
-                      ))}
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -1013,6 +1176,7 @@ export default function ReceiptsPage() {
                                     if (chosen === 'receipt') openReceiptModal(txn, 'receipt')
                                     else if (chosen === 'invoice_receipt') openInvoiceReceiptModal(txn)
                                     else if (chosen === 'journal') openJournalModal(txn)
+                                    else if (chosen === 'transfer') openTransferModal(txn)
                                     else { setActioning(txn.FNCNUM); recordAction(txn, chosen) }
                                   }}
                                 >
@@ -1616,6 +1780,104 @@ export default function ReceiptsPage() {
         </div>
       )}
 
+      {transferModal && (
+        <div className="receipts-modal-overlay" onClick={e => { if (e.target === e.currentTarget) setTransferModal(null) }}>
+          <div className="receipts-modal" dir="rtl">
+            <h3>הפקת העברה בנקאית</h3>
+
+            <table className="receipts-modal-info">
+              <tbody>
+                <tr><th>תאריך:</th><td>{fmt(transferModal.CURDATE)}</td></tr>
+                <tr><th>בנק:</th><td>{transferModal.bank_desc || transferModal.CASHNAME}</td></tr>
+                <tr><th>סניף:</th><td>{transferModal.BRANCHNAME}</td></tr>
+                <tr>
+                  <th>סכום:</th>
+                  <td><AmountCell sum1={transferModal.SUM1} direction={transferModal.direction} /></td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div className="receipts-modal-field">
+              <label>חשבון ספק *</label>
+              <input
+                type="text"
+                placeholder={`לדוגמה: 60367-${transferModal?.BRANCHNAME || '025'}`}
+                value={transferAccname}
+                autoFocus
+                onChange={e => {
+                  setTransferAccname(e.target.value)
+                  setTransferAccdes('')
+                  searchTransferAcc(e.target.value, transferModal?.BRANCHNAME)
+                }}
+                onBlur={async () => {
+                  if (!transferAccname.trim() || transferAccdes) return
+                  try {
+                    const res = await fetch(`${API}/api/receipts/priority-accounts?q=${encodeURIComponent(transferAccname.trim())}&branchname=${encodeURIComponent(transferModal?.BRANCHNAME || '')}`).then(r => r.json())
+                    const accs = res.accounts || []
+                    const exact = accs.find(a => a.accname === transferAccname.trim()) || accs[0]
+                    if (exact) setTransferAccdes(exact.accdes)
+                  } catch { /* silent */ }
+                }}
+              />
+              {transferAccdes && (
+                <div style={{ fontSize: 12, color: '#374151', marginTop: 3, paddingRight: 2 }}>
+                  <span style={{ color: '#6b7280' }}>שם חשבון: </span>
+                  <strong>{transferAccdes}</strong>
+                </div>
+              )}
+              {transferAccSearching && (
+                <p style={{ fontSize: 12, color: '#6b7280', margin: '2px 0 0' }}>מחפש חשבונות...</p>
+              )}
+              {transferAccSugg.length > 0 && (
+                <div style={{ border: '1px solid #e5e7eb', borderRadius: 6, marginTop: 2, background: '#fff', maxHeight: 160, overflowY: 'auto' }}>
+                  {transferAccSugg.map(a => (
+                    <button
+                      key={a.accname}
+                      onClick={() => { setTransferAccname(a.accname); setTransferAccdes(a.accdes); setTransferAccSugg([]) }}
+                      style={{ display: 'block', width: '100%', textAlign: 'right', padding: '6px 10px',
+                        border: 'none', background: 'none', cursor: 'pointer', fontSize: 13,
+                        borderBottom: '1px solid #f3f4f6' }}
+                    >
+                      <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#1d4ed8' }}>{a.accname}</span>
+                      {' — '}{a.accdes}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="receipts-modal-field">
+              <label>פרטים</label>
+              <input
+                type="text"
+                value={transferDetails}
+                onChange={e => setTransferDetails(e.target.value)}
+              />
+            </div>
+
+            {transferError   && <p className="receipts-error"  style={{ margin: '8px 0' }}>{transferError}</p>}
+            {transferSuccess && <p style={{ margin: '8px 0', color: '#15803d', fontWeight: 600 }}>{transferSuccess}</p>}
+
+            <div className="receipts-modal-actions">
+              <button
+                className="receipts-btn receipts-btn-approve"
+                onClick={submitTransfer}
+                disabled={transferSending}
+              >
+                {transferSending ? 'שולח לפריוריטי...' : 'צור העברה בנקאית'}
+              </button>
+              <button
+                className="receipts-btn receipts-btn-cancel"
+                onClick={() => setTransferModal(null)}
+                disabled={transferSending}
+              >
+                ביטול
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {finalizeModal && (
         <div className="receipts-modal-overlay" onClick={e => { if (e.target === e.currentTarget) { setFinalizeModal(null); setFinalizeInputNum('') } }}>
           <div className="receipts-modal" dir="rtl" style={{ maxWidth: 420 }}>
@@ -1657,6 +1919,52 @@ export default function ReceiptsPage() {
                 onClick={confirmFinalizeJournal}
                 disabled={finalizeSaving}
               >{finalizeSaving ? '...' : 'סמן כנרשם'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {finalizeTransferModal && (
+        <div className="receipts-modal-overlay" onClick={e => { if (e.target === e.currentTarget) { setFinalizeTransferModal(null); setFinalizeTransferInput('') } }}>
+          <div className="receipts-modal" dir="rtl" style={{ maxWidth: 420 }}>
+            <h3>אישור העברה בנקאית</h3>
+            {finalizeTransferModal.error && (
+              <p style={{ fontSize: 12, color: '#dc2626', background: '#fef2f2', border: '1px solid #fca5a5',
+                           borderRadius: 6, padding: '6px 10px', marginBottom: 10, direction: 'rtl' }}>
+                {finalizeTransferModal.error}
+              </p>
+            )}
+            <p style={{ fontSize: 13, color: '#374151', lineHeight: 1.6 }}>
+              יש לבצע את הפעולה ידנית בפריוריטי:
+            </p>
+            <ol style={{ fontSize: 13, color: '#374151', lineHeight: 2, paddingRight: 20, marginBottom: 16 }}>
+              <li>פתח פריוריטי ← העברות בנקאיות/כרטיסי אשראי</li>
+              <li>חפש מספר <strong>{finalizeTransferModal.ivnum}</strong></li>
+              <li>לחץ <strong>"אישור העברה בנקאית"</strong></li>
+            </ol>
+            <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>
+              מספר פקודת יומן (אחרי האישור בפריוריטי):
+            </label>
+            <input
+              type="text"
+              value={finalizeTransferInput}
+              onChange={e => setFinalizeTransferInput(e.target.value)}
+              placeholder={`${finalizeTransferModal.ivnum} (השאר ריק אם לא השתנה)`}
+              style={{ width: '100%', padding: '6px 10px', fontSize: 13, borderRadius: 6,
+                       border: '1px solid #d1d5db', marginBottom: 16, boxSizing: 'border-box' }}
+              dir="ltr"
+            />
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                className="receipts-btn receipts-btn-cancel"
+                onClick={() => { setFinalizeTransferModal(null); setFinalizeTransferInput('') }}
+                disabled={finalizeTransferSaving}
+              >ביטול</button>
+              <button
+                className="receipts-btn receipts-btn-primary"
+                onClick={confirmFinalizeTransfer}
+                disabled={finalizeTransferSaving}
+              >{finalizeTransferSaving ? '...' : 'סמן כמאושר'}</button>
             </div>
           </div>
         </div>
