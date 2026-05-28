@@ -356,6 +356,7 @@ export default function ReceiptsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           txn_id:      txn.FNCNUM,
+          bank_ref:    txn.REF || '',
           accname:     modalAccname.trim(),
           accdes:      '',
           amount:      txn.SUM1,
@@ -756,6 +757,7 @@ export default function ReceiptsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           txn_id:     txn.FNCNUM,
+          bank_ref:   txn.REF || '',
           direction:  txn.direction,
           amount:     txn.SUM1,
           cashname:   txn.CASHNAME,
@@ -792,6 +794,7 @@ export default function ReceiptsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           txn_id:              txn.FNCNUM,
+          bank_ref:            txn.REF || '',
           direction:           txn.direction,
           amount:              txn.SUM1,
           cashname:            txn.CASHNAME,

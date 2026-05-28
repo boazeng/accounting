@@ -4614,7 +4614,7 @@ def receipts_bank_transactions():
         r_lines = http_requests.get(
             f"{_prio_url()}/BANKLINESA"
             f"?$filter={flt}"
-            "&$select=CASHNAME,BPYEAR,CURDATE,DETAILS,CREDIT,DEBIT,BTCODE,FNCNUM,BANKPAGE,KLINE"
+            "&$select=CASHNAME,BPYEAR,CURDATE,DETAILS,CREDIT,DEBIT,BTCODE,FNCNUM,REF,BANKPAGE,KLINE"
             "&$orderby=CURDATE desc&$top=500",
             headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=30, verify=False,
         )
@@ -4698,6 +4698,7 @@ def receipts_bank_transactions():
                 "already_queued":   False,
                 "BANKPAGE":         bp,
                 "KLINE":            kl,
+                "REF":              line.get("REF") or "",
             })
 
         return jsonify({"ok": True, "transactions": txns, "days": days,
@@ -4728,6 +4729,7 @@ def bank_line_create_receipt():
     try:
         data       = request.get_json(force=True) or {}
         txn_id     = str(data.get("txn_id",     "")).strip()
+        bank_ref   = str(data.get("bank_ref",   "")).strip()
         accname    = str(data.get("accname",    "")).strip()
         accdes     = str(data.get("accdes",     "")).strip()
         amount     = float(data.get("amount",   0))
@@ -4855,6 +4857,9 @@ def bank_line_create_receipt():
         processed = _load_processed_txns()
         processed.add(txn_id)
         _save_processed_txns(processed)
+
+        # Async: run bank reconciliation — link receipt to bank line
+        _launch_bank_recon(priority_ivnum, cashname, bank_ref or txn_id, label="receipt")
 
         return jsonify({"ok": True, "priority_ivnum": priority_ivnum})
 
@@ -5268,6 +5273,7 @@ def bank_line_create_journal():
     try:
         data             = request.get_json(force=True) or {}
         txn_id           = str(data.get("txn_id",            "")).strip()
+        bank_ref         = str(data.get("bank_ref",           "")).strip()
         direction        = str(data.get("direction",          "-")).strip()
         amount           = float(data.get("amount",           0))
         cashname         = str(data.get("cashname",           "")).strip()
@@ -5278,6 +5284,8 @@ def bank_line_create_journal():
         ivdate           = str(data.get("ivdate",             ""))[:10]
         branchname       = str(data.get("branchname",         "")).strip()
         save_tpl         = data.get("save_template", True)
+        # FNCREF: prefer bank's own reference number (REF from BANKLINESA) for CREDITRECONSP matching
+        fncref_value     = bank_ref or txn_id
 
         if not txn_id or not counterpart or amount <= 0:
             return jsonify({"ok": False, "error": "חסרים שדות חובה (txn_id, counterpart_account, amount)"}), 400
@@ -5311,7 +5319,7 @@ def bank_line_create_journal():
             "BALDATE":    ivdate,
             "BRANCHNAME": branchname,
             "DETAILS":    details,
-            "FNCREF":     txn_id,   # bank transaction ID → visible in BANKRECONSP for manual matching
+            "FNCREF":     fncref_value,   # bank REF → used by CREDITRECONSP for auto-matching
             "FNCITEMS_SUBFORM": [
                 {"ACCNAME": bank_acc, "DEBIT1": bank_debit, "CREDIT1": bank_credit, "DETAILS": details},
                 {"ACCNAME": cp_acc,   "DEBIT1": cp_debit,   "CREDIT1": cp_credit,   "DETAILS": details},
@@ -5357,7 +5365,7 @@ def bank_line_create_journal():
         _save_processed_txns(processed)
 
         # Async: run bank reconciliation (BANKRECONSP) in background — non-blocking
-        _launch_bank_recon(fncnum, cashname, txn_id, label="journal")
+        _launch_bank_recon(fncnum, cashname, bank_ref or txn_id, label="journal")
 
         return jsonify({"ok": True, "fncnum": fncnum})
 
@@ -5377,6 +5385,7 @@ def bank_line_create_transfer():
     try:
         data       = request.get_json(force=True) or {}
         txn_id     = str(data.get("txn_id",     "")).strip()
+        bank_ref   = str(data.get("bank_ref",   "")).strip()
         amount     = float(data.get("amount",    0))
         cashname   = str(data.get("cashname",   "")).strip()
         branchname = str(data.get("branchname", "")).strip()
@@ -5451,7 +5460,7 @@ def bank_line_create_transfer():
         processed.add(txn_id)
         _save_processed_txns(processed)
 
-        _launch_bank_recon(ivnum, cashname, txn_id, label="transfer")
+        _launch_bank_recon(ivnum, cashname, bank_ref or txn_id, label="transfer")
 
         return jsonify({"ok": True, "ivnum": ivnum})
 

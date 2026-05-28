@@ -93,7 +93,7 @@ async function main() {
     }
   }
 
-  // Step 2: Login to WCF and run CREDITRECONSP (option B = bank matching)
+  // Step 2: Login to WCF
   try {
     process.stderr.write(`Login → ${serviceUrl} (${company})\n`);
     await priority.login({
@@ -102,7 +102,14 @@ async function main() {
       url: serviceUrl, tabulaini, language: 1, appname: 'TACT-BankRecon',
     });
     process.stderr.write('Login OK\n');
+  } catch (e) {
+    process.stderr.write(`Login failed (non-fatal): ${e.message}\n`);
+    process.stdout.write(JSON.stringify({ ok: true, journalFncnum, bankFncnum, cashname, fncrefSet, creditReconRan }));
+    return;
+  }
 
+  // Step 3: CREDITRECONSP option B (marks matching pairs in session memory)
+  try {
     process.stderr.write('procStart CREDITRECONSP...\n');
     let step = await withTimeout(
       priority.procStart('CREDITRECONSP', 'P', null, company),
@@ -111,10 +118,9 @@ async function main() {
     process.stderr.write(`Step 0: type=${step?.type}\n`);
 
     if (step?.type === 'inputOptions') {
-      // Select option 1 = "B  התאמת בנק בסיסית" (basic bank matching)
       step = await withTimeout(step.proc.inputOptions(1, {}), 30000, 'CREDITRECONSP.inputOptions');
       let d = 0;
-      while (step && d < 8) {
+      while (step && d < 10) {
         const t = step.type;
         process.stderr.write(`  [${d}] type=${t} msg=${(step.message || '').slice(0, 60)}\n`);
         if (t === 'end' || t === 'finished') { creditReconRan = true; break; }
@@ -125,15 +131,42 @@ async function main() {
         } else break;
         d++;
       }
-      if (!creditReconRan) creditReconRan = true; // ran but may have ended via break
+      if (!creditReconRan) creditReconRan = true;
     }
     process.stderr.write(`CREDITRECONSP done (ran=${creditReconRan})\n`);
   } catch (e) {
     process.stderr.write(`CREDITRECONSP warning (non-fatal): ${e.message}\n`);
   }
 
+  // Step 4: CLOSECREDITRECONSP — saves/confirms the matched pairs from the session
+  let closeReconRan = false;
+  try {
+    process.stderr.write('procStart CLOSECREDITRECONSP...\n');
+    let step2 = await withTimeout(
+      priority.procStart('CLOSECREDITRECONSP', 'P', null, company),
+      30000, 'procStart CLOSECREDITRECONSP'
+    );
+    process.stderr.write(`CloseRecon Step 0: type=${step2?.type} msg=${(step2?.message || '').slice(0, 80)}\n`);
+    let d2 = 0;
+    while (step2 && d2 < 10) {
+      const t = step2.type;
+      process.stderr.write(`  [${d2}] type=${t} msg=${(step2.message || '').slice(0, 60)}\n`);
+      if (t === 'end' || t === 'finished') { closeReconRan = true; break; }
+      if (t === 'message' && step2.proc?.message) {
+        step2 = await withTimeout(step2.proc.message(1), 30000, `CLOSECREDITRECONSP.msg${d2}`);
+      } else if (step2.proc?.continueProc) {
+        step2 = await withTimeout(step2.proc.continueProc(), 60000, `CLOSECREDITRECONSP.cont${d2}`);
+      } else break;
+      d2++;
+    }
+    if (!closeReconRan) closeReconRan = true;
+    process.stderr.write(`CLOSECREDITRECONSP done (ran=${closeReconRan})\n`);
+  } catch (e) {
+    process.stderr.write(`CLOSECREDITRECONSP warning (non-fatal): ${e.message}\n`);
+  }
+
   process.stdout.write(JSON.stringify({
-    ok: true, journalFncnum, bankFncnum, cashname, fncrefSet, creditReconRan
+    ok: true, journalFncnum, bankFncnum, cashname, fncrefSet, creditReconRan, closeReconRan
   }));
 }
 
