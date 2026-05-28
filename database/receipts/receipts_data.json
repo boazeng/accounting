@@ -115,5 +115,25 @@
     "closed_at": "2026-05-27T13:35:13.747685+03:00",
     "final_ivnum": "103-26-2000040",
     "bank_fncnum": "BP16139-1"
+  },
+  {
+    "id": "b5dad966-0af3-4cc0-a462-09217b9828b0",
+    "fncnum": "26007540",
+    "accname": "50778",
+    "accdes": "50778",
+    "cashname": "103-200",
+    "totprice": 1300.0,
+    "ivdate": "2026-05-24",
+    "branchname": "103",
+    "details": "דמי ניהול 5/26",
+    "source_ivnum": "",
+    "doc_type": "invoice_receipt",
+    "status": "closed",
+    "created_at": "2026-05-28T09:08:34.624847",
+    "priority_ivnum": "T1056",
+    "approved_at": "2026-05-28T09:08:34.641760",
+    "closed_at": "2026-05-28T09:10:41.292912+03:00",
+    "final_ivnum": "103-26-2000041",
+    "bank_fncnum": "BP16138-1"
   }
 ]

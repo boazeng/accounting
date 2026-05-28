@@ -28,5 +28,10 @@
     "counterpart_account": "206-5",
     "counterpart_desc": "ביטוח לאומי",
     "updated_at": "2026-05-27T13:38:09.430523"
+  },
+  "העברה לאנרגיה אורבנית": {
+    "counterpart_account": "3083",
+    "counterpart_desc": "חו\"ז אנרגיה אורבנית מקבוצת יעל ישראל בע\"מ",
+    "updated_at": "2026-05-28T08:39:35.115213"
   }
 }

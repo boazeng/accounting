@@ -4616,7 +4616,7 @@ def receipts_bank_transactions():
             f"?$filter={flt}"
             "&$select=CASHNAME,BPYEAR,CURDATE,DETAILS,CREDIT,DEBIT,BTCODE,FNCNUM,BANKPAGE,KLINE"
             "&$orderby=CURDATE desc&$top=500",
-            headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=30,
+            headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=30, verify=False,
         )
         r_lines.raise_for_status()
         raw_lines = r_lines.json().get("value", [])
@@ -4634,7 +4634,7 @@ def receipts_bank_transactions():
                 r_pages = http_requests.get(
                     f"{_prio_url()}/BANKPAGES?$filter=({page_filter})"
                     "&$select=BANKPAGE,CASHNAME,BANKNAME,BRANCH,PAYACCOUNT",
-                    headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=30,
+                    headers=_PRIO_READ_HEADERS, auth=_prio_auth(), timeout=30, verify=False,
                 )
                 if r_pages.status_code == 200:
                     for p in r_pages.json().get("value", []):
@@ -5002,7 +5002,7 @@ def bank_line_create_invoice_receipt():
         logger.info(f"create_invoice_receipt header: {header_payload}")
         resp = http_requests.post(
             f"{_prio_url()}/EINVOICES", json=header_payload,
-            headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=20,
+            headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=20, verify=False,
         )
         if not resp.ok:
             try:
@@ -5027,12 +5027,17 @@ def bank_line_create_invoice_receipt():
         key            = f"IVNUM='{priority_ivnum}',IVTYPE='{ivtype}',DEBIT='{debit}'"
 
         # 2. POST each line item to EINVOICEITEMS_SUBFORM
-        # Frontend sends VAT-inclusive prices; Priority's PRICE field is pre-VAT, so divide by 1.18
+        # Round pre-VAT price UP (ceiling) so TOTPRICE >= bank_amount.
+        # The overshoot (0 or 0.01) is corrected via DISCOUNT on the header.
+        import math as _math
+        import time as _time_ir
         VAT_RATE = 0.18
+
         for item in items:
             inclusive = round(float(item.get("PRICE", 0)), 2)
-            pre_vat   = round(inclusive / (1 + VAT_RATE), 2)
-            tquant    = float(item.get("TQUANT", 1))
+            # Ceiling so Priority's TOTPRICE is always >= target (never below)
+            pre_vat = _math.ceil(inclusive / (1 + VAT_RATE) * 100) / 100
+            tquant  = float(item.get("TQUANT", 1))
             item_payload = {
                 "PARTNAME": str(item.get("PARTNAME", "000")),
                 "PDES":     str(item.get("PDES", "")),
@@ -5042,18 +5047,15 @@ def bank_line_create_invoice_receipt():
             try:
                 http_requests.post(
                     f"{_prio_url()}/EINVOICES({key})/EINVOICEITEMS_SUBFORM",
-                    json=item_payload, headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=15,
+                    json=item_payload, headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=15, verify=False,
                 ).raise_for_status()
             except Exception as item_err:
                 logger.warning(f"EINVOICEITEMS_SUBFORM item failed (non-fatal): {item_err}")
 
-        # ── TOTPRICE correction loop ──────────────────────────────────────────
-        # 600 / 1.18 = 508.4745... → 508.47 → 508.47*1.18 = 599.99 ≠ 600.
-        # We query Priority's actual TOTPRICE (with retry until > 0), then add
-        # small "הפרש" lines until TOTPRICE == bank_amount exactly (max 3 passes).
-        import time as _time_ir
-
-        def _query_totprice(retries=3, wait=1.2):
+        # ── DISCOUNT correction ───────────────────────────────────────────────
+        # Query Priority's actual TOTPRICE, then set DISCOUNT = overshoot so
+        # the final TOTPRICE equals the bank amount exactly.
+        def _query_totprice(retries=3, wait=1.5):
             for _ in range(retries):
                 _time_ir.sleep(wait)
                 try:
@@ -5069,47 +5071,30 @@ def bank_line_create_invoice_receipt():
                     pass
             return 0.0
 
-        def _pre_vat_for_diff(d):
-            """Find 2-dp pre-VAT price p such that p + round(p*VAT,2) == d exactly."""
-            p0 = round(d / (1 + VAT_RATE), 2)
-            for adj in [0, 0.01, -0.01, 0.02, -0.02]:
-                p = round(p0 + adj, 2)
-                if p <= 0:
-                    continue
-                if round(p + round(p * VAT_RATE, 2), 2) == round(d, 2):
-                    return p
-            return p0
+        actual_total = _query_totprice(retries=3, wait=1.5)
+        logger.info(f"EINVOICES {priority_ivnum}: TOTPRICE={actual_total}, bank={amount}")
 
-        actual_total = _query_totprice(retries=3, wait=1.2)
-        logger.info(f"EINVOICES {priority_ivnum}: initial TOTPRICE={actual_total}, bank={amount}")
-
-        for _pass in range(3):
-            if actual_total <= 0:
-                logger.warning(f"EINVOICES {priority_ivnum}: TOTPRICE=0 — items may not have saved")
-                break
-            diff = round(amount - actual_total, 2)
-            if abs(diff) < 0.005:
-                logger.info(f"EINVOICES {priority_ivnum}: TOTPRICE exact after pass {_pass}")
-                break
-            if abs(diff) > 5.0:
-                logger.warning(f"EINVOICES {priority_ivnum}: diff={diff} too large — skipping הפרש")
-                break
-            corr_pre_vat = _pre_vat_for_diff(abs(diff)) * (1 if diff > 0 else -1)
-            logger.info(f"EINVOICES {priority_ivnum}: pass={_pass} diff={diff} → הפרש pre_vat={corr_pre_vat}")
+        overshoot = round(actual_total - amount, 2)
+        if actual_total > 0 and 0 < overshoot <= 2.0:
+            # DISCOUNT reduces the invoice total — set it to the overshoot cents
             try:
-                http_requests.post(
-                    f"{_prio_url()}/EINVOICES({key})/EINVOICEITEMS_SUBFORM",
-                    json={"PARTNAME": "DIFF", "PDES": "הפרש", "TQUANT": 1.0, "PRICE": corr_pre_vat},
+                patch_r = http_requests.patch(
+                    f"{_prio_url()}/EINVOICES({key})",
+                    json={"DISCOUNT": overshoot},
                     headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=15, verify=False,
                 )
-            except Exception as _he:
-                logger.warning(f"הפרש POST failed: {_he}")
-                break
-            actual_total = _query_totprice(retries=2, wait=1.0)
-            logger.info(f"EINVOICES {priority_ivnum}: TOTPRICE after pass {_pass}: {actual_total}")
+                logger.info(f"EINVOICES {priority_ivnum}: DISCOUNT={overshoot} → status {patch_r.status_code}")
+                if patch_r.ok:
+                    actual_total = _query_totprice(retries=2, wait=1.0)
+                    logger.info(f"EINVOICES {priority_ivnum}: TOTPRICE after DISCOUNT={actual_total}")
+            except Exception as _de:
+                logger.warning(f"DISCOUNT patch failed (non-fatal): {_de}")
+        elif actual_total > 0 and abs(overshoot) < 0.005:
+            logger.info(f"EINVOICES {priority_ivnum}: TOTPRICE exact, no DISCOUNT needed")
 
-        pay_amount = round(actual_total if actual_total > 0 else amount, 2)
-        logger.info(f"EINVOICES {priority_ivnum}: QPRICE={pay_amount}")
+        # Payment always matches the bank transfer amount — not the (possibly rounded) TOTPRICE
+        pay_amount = round(amount, 2)
+        logger.info(f"EINVOICES {priority_ivnum}: QPRICE={pay_amount} (bank amount), actual_total={actual_total}")
 
         # 3. POST payment to EPAYMENT2_SUBFORM — payment type 3 = bank transfer
         epay_payload = {
@@ -5123,7 +5108,7 @@ def bank_line_create_invoice_receipt():
         logger.info(f"EINVOICES {priority_ivnum}: EPAYMENT2_SUBFORM QPRICE={pay_amount}")
         epay_resp = http_requests.post(
             f"{_prio_url()}/EINVOICES({key})/EPAYMENT2_SUBFORM",
-            json=epay_payload, headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=15,
+            json=epay_payload, headers=_PRIO_WRITE_HEADERS, auth=_prio_auth(), timeout=15, verify=False,
         )
         if not epay_resp.ok:
             try:

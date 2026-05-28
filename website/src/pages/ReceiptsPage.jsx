@@ -47,7 +47,7 @@ export default function ReceiptsPage() {
   const [actioning, setActioning] = useState(null)
   const [rowActions, setRowActions] = useState({}) // fncnum → 'receipt'|'journal'|'transfer'
 
-  const [days, setDays]               = useState(180)
+  const [days, setDays]               = useState(365)
   const [since, setSince]             = useState('')
   const [branchFilter, setBranchFilter] = useState('all')
   const [allBranches, setAllBranches] = useState([])
@@ -908,6 +908,8 @@ export default function ReceiptsPage() {
                     <option value={90}>90 יום</option>
                     <option value={180}>חצי שנה</option>
                     <option value={365}>שנה</option>
+                    <option value={730}>שנתיים</option>
+                    <option value={3650}>כל התקופה</option>
                   </select>
                   {since && <span className="receipts-since">({fmt(since + 'T00:00:00Z')} ואילך)</span>}
                 </div>
